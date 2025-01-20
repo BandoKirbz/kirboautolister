@@ -28,7 +28,7 @@ const productUpdateSchema = z.object({
 // GET /api/products/[id] - Get a single product
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await auth();
@@ -36,7 +36,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = context.params;
 
     const product = await db.product.findUnique({
       where: {
@@ -80,7 +80,7 @@ export async function GET(
 // PATCH /api/products/[id] - Update a product
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await auth();
@@ -88,7 +88,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = context.params;
 
     const json = await request.json();
     const validatedData = productUpdateSchema.parse(json);
@@ -230,7 +230,7 @@ export async function PATCH(
 // DELETE /api/products/[id] - Delete a product
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await auth();
@@ -238,7 +238,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = context.params;
 
     console.log("[PRODUCT_DELETE] Attempting to delete product:", id);
 
