@@ -1,28 +1,17 @@
 import NextAuth from "next-auth";
+import { NextAuthConfig } from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { NextAuthConfig } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
 
-export const authConfig: NextAuthConfig = {
+export const config: NextAuthConfig = {
   pages: {
     signIn: "/login",
     newUser: "/register",
     error: "/error",
   },
   callbacks: {
-    authorized({ auth, request: { nextUrl } }) {
-      const isLoggedIn = !!auth?.user;
-      const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
-      
-      if (isOnDashboard) {
-        if (isLoggedIn) return true;
-        return false;
-      } else if (isLoggedIn) {
-        return Response.redirect(new URL("/dashboard", nextUrl));
-      }
-      return true;
-    },
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
@@ -42,56 +31,59 @@ export const authConfig: NextAuthConfig = {
       return session;
     },
   },
-  providers: [], // We'll add providers in the next step
   adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
-};
-
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  ...authConfig,
   providers: [
-    {
-      id: "credentials",
+    CredentialsProvider({
       name: "Credentials",
-      type: "credentials",
       credentials: {
         identifier: { label: "Email or Username", type: "text" },
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        if (!credentials?.identifier || !credentials?.password) {
-          throw new Error("Invalid credentials");
-        }
-
-        const identifier = credentials.identifier as string;
-
-        // Try to find user by email or username
-        const user = await prisma.user.findFirst({
-          where: {
-            OR: [
-              { email: identifier.toLowerCase() },
-              { username: identifier.toLowerCase() }
-            ]
+        try {
+          if (!credentials?.identifier || !credentials?.password) {
+            return null;
           }
-        });
 
-        if (!user || !user.password) {
-          throw new Error("Invalid credentials");
+          const identifier = credentials.identifier.toLowerCase();
+          const user = await prisma.user.findFirst({
+            where: {
+              OR: [
+                { email: identifier },
+                { username: identifier }
+              ]
+            }
+          });
+
+          if (!user || !user.password) {
+            return null;
+          }
+
+          const isValid = await bcrypt.compare(credentials.password, user.password);
+
+          if (!isValid) {
+            return null;
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            username: user.username,
+          };
+        } catch (error) {
+          console.error("Auth error in authorize:", error);
+          return null;
         }
-
-        const isValid = await bcrypt.compare(credentials.password as string, user.password);
-
-        if (!isValid) {
-          throw new Error("Invalid credentials");
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          username: user.username,
-        };
       },
-    },
+    }),
   ],
-}); 
+  session: {
+    strategy: "jwt",
+  },
+  debug: process.env.NODE_ENV === "development",
+};
+
+const { auth, handlers: authHandler, signIn, signOut } = NextAuth(config);
+
+export { auth, authHandler, signIn, signOut }; 

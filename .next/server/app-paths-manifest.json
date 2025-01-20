@@ -1,7 +1,6 @@
 {
+  "/page": "app/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/platforms/ebay/status/route": "app/api/platforms/ebay/status/route.js",
-  "/dashboard/platforms/page": "app/dashboard/platforms/page.js"
+  "/(auth)/register/page": "app/(auth)/register/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js"
 }

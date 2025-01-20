@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { auth } from "@/app/auth";
 import { z } from "zod";
 
-import { authOptions } from "@/app/auth";
 import { db } from "@/lib/db";
 
 // Profile update schema
@@ -23,7 +22,7 @@ const profileUpdateSchema = z.object({
 // GET /api/user/profile - Get user profile
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -71,7 +70,7 @@ export async function GET() {
 // PATCH /api/user/profile - Update user profile
 export async function PATCH(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -131,8 +131,8 @@ var { r: __turbopack_require__, f: __turbopack_module_context__, i: __turbopack_
 {
 __turbopack_esm__({
     "auth": (()=>auth),
-    "authConfig": (()=>authConfig),
-    "handlers": (()=>handlers),
+    "authHandler": (()=>authHandler),
+    "config": (()=>config),
     "signIn": (()=>signIn),
     "signOut": (()=>signOut)
 });
@@ -140,29 +140,21 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2d$auth
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$auth$2f$prisma$2d$adapter$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/node_modules/@auth/prisma-adapter/index.js [app-route] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/lib/prisma.ts [app-route] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$bcryptjs$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/node_modules/bcryptjs/index.js [app-route] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2d$auth$2f$providers$2f$credentials$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__$3c$module__evaluation$3e$__ = __turbopack_import__("[project]/node_modules/next-auth/providers/credentials.js [app-route] (ecmascript) <module evaluation>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$auth$2f$core$2f$providers$2f$credentials$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/node_modules/@auth/core/providers/credentials.js [app-route] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2d$auth$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_import__("[project]/node_modules/next-auth/index.js [app-route] (ecmascript) <locals>");
 ;
 ;
 ;
 ;
-const authConfig = {
+;
+const config = {
     pages: {
         signIn: "/login",
         newUser: "/register",
         error: "/error"
     },
     callbacks: {
-        authorized ({ auth, request: { nextUrl } }) {
-            const isLoggedIn = !!auth?.user;
-            const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
-            if (isOnDashboard) {
-                if (isLoggedIn) return true;
-                return false;
-            } else if (isLoggedIn) {
-                return Response.redirect(new URL("/dashboard", nextUrl));
-            }
-            return true;
-        },
         async jwt ({ token, user }) {
             if (user) {
                 token.id = user.id;
@@ -182,19 +174,10 @@ const authConfig = {
             return session;
         }
     },
-    providers: [],
     adapter: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$auth$2f$prisma$2d$adapter$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["PrismaAdapter"])(__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["prisma"]),
-    session: {
-        strategy: "jwt"
-    }
-};
-const { handlers, auth, signIn, signOut } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2d$auth$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__$3c$locals$3e$__["default"])({
-    ...authConfig,
     providers: [
-        {
-            id: "credentials",
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$auth$2f$core$2f$providers$2f$credentials$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"])({
             name: "Credentials",
-            type: "credentials",
             credentials: {
                 identifier: {
                     label: "Email or Username",
@@ -206,40 +189,50 @@ const { handlers, auth, signIn, signOut } = (0, __TURBOPACK__imported__module__$
                 }
             },
             async authorize (credentials) {
-                if (!credentials?.identifier || !credentials?.password) {
-                    throw new Error("Invalid credentials");
-                }
-                const identifier = credentials.identifier;
-                // Try to find user by email or username
-                const user = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["prisma"].user.findFirst({
-                    where: {
-                        OR: [
-                            {
-                                email: identifier.toLowerCase()
-                            },
-                            {
-                                username: identifier.toLowerCase()
-                            }
-                        ]
+                try {
+                    if (!credentials?.identifier || !credentials?.password) {
+                        return null;
                     }
-                });
-                if (!user || !user.password) {
-                    throw new Error("Invalid credentials");
+                    const identifier = credentials.identifier.toLowerCase();
+                    const user = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["prisma"].user.findFirst({
+                        where: {
+                            OR: [
+                                {
+                                    email: identifier
+                                },
+                                {
+                                    username: identifier
+                                }
+                            ]
+                        }
+                    });
+                    if (!user || !user.password) {
+                        return null;
+                    }
+                    const isValid = await __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$bcryptjs$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"].compare(credentials.password, user.password);
+                    if (!isValid) {
+                        return null;
+                    }
+                    return {
+                        id: user.id,
+                        email: user.email,
+                        name: user.name,
+                        username: user.username
+                    };
+                } catch (error) {
+                    console.error("Auth error in authorize:", error);
+                    return null;
                 }
-                const isValid = await __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$bcryptjs$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"].compare(credentials.password, user.password);
-                if (!isValid) {
-                    throw new Error("Invalid credentials");
-                }
-                return {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    username: user.username
-                };
             }
-        }
-    ]
-});
+        })
+    ],
+    session: {
+        strategy: "jwt"
+    },
+    debug: ("TURBOPACK compile-time value", "development") === "development"
+};
+const { auth, handlers: authHandler, signIn, signOut } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2d$auth$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__$3c$locals$3e$__["default"])(config);
+;
 }}),
 "[project]/app/api/auth/[...nextauth]/route.ts [app-route] (ecmascript)": ((__turbopack_context__) => {
 "use strict";
@@ -248,11 +241,13 @@ var { r: __turbopack_require__, f: __turbopack_module_context__, i: __turbopack_
 {
 __turbopack_esm__({
     "GET": (()=>GET),
-    "POST": (()=>POST)
+    "POST": (()=>POST),
+    "runtime": (()=>runtime)
 });
 var __TURBOPACK__imported__module__$5b$project$5d2f$app$2f$auth$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/app/auth.ts [app-route] (ecmascript)");
 ;
-const { GET, POST } = __TURBOPACK__imported__module__$5b$project$5d2f$app$2f$auth$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["handlers"];
+const runtime = "nodejs";
+const { GET, POST } = __TURBOPACK__imported__module__$5b$project$5d2f$app$2f$auth$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["authHandler"];
 }}),
 "[project]/ (server-utils)": ((__turbopack_context__) => {
 
