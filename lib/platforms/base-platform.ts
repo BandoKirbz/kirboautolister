@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { z } from "zod";
+import { ListingStatus } from "@prisma/client";
 import {
   PlatformCredentials,
   PlatformError,
@@ -71,21 +73,26 @@ export abstract class BasePlatformIntegration implements PlatformIntegration {
       await db.listing.update({
         where: { id: listingId },
         data: {
-          status: platformListing.status,
-          lastSyncedAt: new Date(),
-          externalId: platformListing.externalId,
-          url: platformListing.url,
-          platformSpecificData: platformListing.platformSpecificData,
+          status: platformListing.status as ListingStatus,
+          updatedAt: new Date(),
+          platformListingId: platformListing.externalId,
         },
       });
 
       return platformListing;
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw new PlatformError(
+          `Failed to sync listing: ${error.message}`,
+          this.platformId,
+          "SYNC_ERROR",
+          error
+        );
+      }
       throw new PlatformError(
-        `Failed to sync listing: ${error.message}`,
+        "Failed to sync listing: Unknown error",
         this.platformId,
-        "SYNC_ERROR",
-        error
+        "SYNC_ERROR"
       );
     }
   }
@@ -127,30 +134,36 @@ export abstract class BasePlatformIntegration implements PlatformIntegration {
       create: {
         userId,
         platformId: this.platformId,
-        credentials,
+        credentials: JSON.stringify(credentials),
         isEnabled: true,
-        lastSyncedAt: new Date(),
       },
       update: {
-        credentials,
+        credentials: JSON.stringify(credentials),
         isEnabled: true,
-        lastSyncedAt: new Date(),
       },
     });
   }
 
-  protected handleError(error: any, operation: string): never {
+  protected handleError(error: unknown, operation: string): never {
     console.error(`[${this.platformId}] ${operation} error:`, error);
     
     if (error instanceof PlatformError) {
       throw error;
     }
 
+    if (error instanceof Error) {
+      throw new PlatformError(
+        `${operation} failed: ${error.message}`,
+        this.platformId,
+        "UNKNOWN_ERROR",
+        error
+      );
+    }
+
     throw new PlatformError(
-      `${operation} failed: ${error.message}`,
+      `${operation} failed: Unknown error`,
       this.platformId,
-      error.code || "UNKNOWN_ERROR",
-      error
+      "UNKNOWN_ERROR"
     );
   }
 } 
