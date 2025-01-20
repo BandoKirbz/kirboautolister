@@ -1,0 +1,177 @@
+import { NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { z } from "zod";
+
+import { ebayDb } from "@/lib/ebay/db";
+import { verifyEbaySignature } from "@/lib/ebay/utils";
+
+// Notification payload schemas
+const baseNotificationSchema = z.object({
+  notificationType: z.enum([
+    "ITEM_SOLD",
+    "ITEM_REVISED",
+    "ITEM_OUT_OF_STOCK",
+    "ITEM_ENDED",
+    "ORDER_PAYMENT_STATUS",
+  ]),
+  timestamp: z.string().datetime(),
+  itemId: z.string(),
+});
+
+const itemSoldSchema = baseNotificationSchema.extend({
+  notificationType: z.literal("ITEM_SOLD"),
+  quantity: z.number().int().positive(),
+  orderId: z.string(),
+  transactionId: z.string(),
+  buyerUsername: z.string(),
+  totalPrice: z.number(),
+});
+
+const itemRevisedSchema = baseNotificationSchema.extend({
+  notificationType: z.literal("ITEM_REVISED"),
+  changes: z.array(
+    z.object({
+      field: z.string(),
+      oldValue: z.string().optional(),
+      newValue: z.string(),
+    })
+  ),
+});
+
+const itemOutOfStockSchema = baseNotificationSchema.extend({
+  notificationType: z.literal("ITEM_OUT_OF_STOCK"),
+});
+
+export async function POST(request: Request) {
+  try {
+    // Get and verify eBay signature
+    const headersList = headers();
+    const signature = headersList.get("x-ebay-signature");
+    
+    if (!signature || !verifyEbaySignature(signature, await request.clone().text())) {
+      console.error("Invalid eBay signature");
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Parse and validate the notification
+    const payload = await request.json();
+    const validatedBase = baseNotificationSchema.parse(payload);
+    
+    // Log the notification for debugging
+    console.log("eBay Notification:", {
+      type: validatedBase.notificationType,
+      itemId: validatedBase.itemId,
+      timestamp: validatedBase.timestamp,
+    });
+
+    // Handle different notification types
+    switch (validatedBase.notificationType) {
+      case "ITEM_SOLD": {
+        const data = itemSoldSchema.parse(payload);
+        await handleItemSold(data);
+        break;
+      }
+      case "ITEM_REVISED": {
+        const data = itemRevisedSchema.parse(payload);
+        await handleItemRevised(data);
+        break;
+      }
+      case "ITEM_OUT_OF_STOCK": {
+        const data = itemOutOfStockSchema.parse(payload);
+        await handleItemOutOfStock(data);
+        break;
+      }
+      default:
+        console.log("Unhandled notification type:", validatedBase.notificationType);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("eBay webhook error:", error);
+    
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid notification format", details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleItemSold(data: z.infer<typeof itemSoldSchema>) {
+  const listing = await ebayDb.getListing(data.itemId);
+  if (!listing) {
+    console.error("Listing not found for sold item:", data.itemId);
+    return;
+  }
+
+  await ebayDb.updateListing(listing.productId, {
+    status: "ACTIVE",
+    lastSyncedAt: new Date(),
+    // Store sale information
+    specificsList: {
+      ...listing.specificsList,
+      sales: [
+        ...(listing.specificsList?.sales || []),
+        {
+          orderId: data.orderId,
+          transactionId: data.transactionId,
+          quantity: data.quantity,
+          buyerUsername: data.buyerUsername,
+          totalPrice: data.totalPrice,
+          soldAt: data.timestamp,
+        },
+      ],
+    },
+  });
+
+  // Update product quantity
+  await ebayDb.updateProductQuantity(listing.productId, -data.quantity);
+}
+
+async function handleItemRevised(data: z.infer<typeof itemRevisedSchema>) {
+  const listing = await ebayDb.getListing(data.itemId);
+  if (!listing) {
+    console.error("Listing not found for revision:", data.itemId);
+    return;
+  }
+
+  await ebayDb.updateListing(listing.productId, {
+    lastSyncedAt: new Date(),
+    // Store revision history
+    specificsList: {
+      ...listing.specificsList,
+      revisions: [
+        ...(listing.specificsList?.revisions || []),
+        {
+          changes: data.changes,
+          timestamp: data.timestamp,
+        },
+      ],
+    },
+  });
+}
+
+async function handleItemOutOfStock(data: z.infer<typeof itemOutOfStockSchema>) {
+  const listing = await ebayDb.getListing(data.itemId);
+  if (!listing) {
+    console.error("Listing not found for out of stock:", data.itemId);
+    return;
+  }
+
+  await ebayDb.updateListing(listing.productId, {
+    status: "OUT_OF_STOCK",
+    lastSyncedAt: new Date(),
+  });
+
+  // Update product quantity to 0
+  await ebayDb.updateProductQuantity(listing.productId, 0);
+} 

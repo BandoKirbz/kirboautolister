@@ -1,0 +1,285 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres", "multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["kirbo407"]
+}
+
+/// @schema(kirbo407)
+model user {
+  id            String               @id @default(cuid())
+  account_id    Int                  @unique @default(autoincrement())
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  email         String               @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  password      String?
+  username      String?              @unique
+  bio           String?
+  location      String?
+  website       String?
+  businessName  String?
+  taxId         String?
+  accounts      account[]
+  listings      listing[]
+  platforms     platformconnection[]
+  products      product[]
+  sessions      session[]
+  subscription  subscriptionstatus?
+  ebayCredential ebaycredential?
+
+  @@index([email])
+  @@index([username])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              user    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model product {
+  id          String         @id @default(cuid())
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  userId      String
+  sku         String?        @unique
+  name        String
+  description String
+  brand       String?
+  category    String?
+  condition   String
+  price       Float
+  quantity    Int            @default(1)
+  location    String?
+  listings    listing[]
+  user        user           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  images      productimage[]
+  ebayListing ebaylisting?
+
+  @@index([userId])
+  @@index([sku])
+  @@index([name, description])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model productimage {
+  id        String  @id @default(cuid())
+  productId String
+  url       String
+  order     Int     @default(0)
+  product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model listing {
+  id                String        @id @default(cuid())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  userId            String
+  productId         String
+  platformId        String
+  title             String
+  description       String
+  price             Float
+  quantity          Int           @default(1)
+  condition         String
+  platformListingId String?
+  status            ListingStatus @default(DRAFT)
+  errors            String?
+  platform          platform      @relation(fields: [platformId], references: [id])
+  product           product       @relation(fields: [productId], references: [id])
+  user              user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([productId])
+  @@index([platformId])
+  @@index([status])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model platform {
+  id          String               @id @default(cuid())
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  name        String               @unique
+  slug        String               @unique
+  website     String
+  logoUrl     String?
+  listings    listing[]
+  connections platformconnection[]
+
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model platformconnection {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  platformId  String
+  isEnabled   Boolean  @default(true)
+  credentials Json?
+  settings    Json?
+  platform    platform @relation(fields: [platformId], references: [id])
+  user        user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platformId])
+  @@index([userId])
+  @@index([platformId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model subscriptionplan {
+  id          String               @id @default(cuid())
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  name        String               @unique
+  description String
+  price       Float
+  interval    BillingInterval
+  features    Json
+  isActive    Boolean              @default(true)
+  statuses    subscriptionstatus[]
+
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model subscriptionstatus {
+  id                   String           @id @default(cuid())
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  userId               String           @unique
+  planId               String
+  status               SubStatus        @default(INACTIVE)
+  startDate            DateTime?
+  endDate              DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  plan                 subscriptionplan @relation(fields: [planId], references: [id])
+  user                 user             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model ebaycredential {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String[]
+  ebayUsername String?
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model ebaylisting {
+  id            String           @id @default(cuid())
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  productId     String          @unique
+  ebayItemId    String?         // eBay's unique identifier
+  status        EbayListingStatus @default(DRAFT)
+  lastSyncedAt  DateTime?
+  errors        Json?           // Store sync errors
+  categoryId    String?         // eBay category ID
+  specificsList Json?           // eBay item specifics
+  product       product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([status])
+  @@index([ebayItemId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+enum EbayListingStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  ERROR
+  ENDED
+
+  @@schema("kirbo407")
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  PAUSED
+  ENDED
+  ERROR
+
+  @@schema("kirbo407")
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+
+  @@schema("kirbo407")
+}
+
+enum SubStatus {
+  ACTIVE
+  INACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+
+  @@schema("kirbo407")
+}
