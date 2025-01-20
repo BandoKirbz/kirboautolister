@@ -9,12 +9,17 @@ const depopCredentialsSchema = z.object({
   password: z.string(),
 });
 
+export const runtime = "nodejs";
+
 // POST /api/platforms/depop/auth - Authenticate with Depop
 export async function POST(request: Request) {
   try {
     const session = await auth();
     if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return new NextResponse(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401 }
+      );
     }
 
     const json = await request.json();
@@ -58,9 +63,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error authenticating with Depop:", error);
+    console.error("Depop POST error:", error);
     return NextResponse.json(
-      { error: "Failed to authenticate with Depop" },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
@@ -187,14 +192,23 @@ export async function list(request: Request) {
 }
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return new NextResponse(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401 }
+      );
+    }
 
-  // Return Depop platform info
-  return NextResponse.json({
-    name: "Depop",
-    status: "coming_soon"
-  });
+    return NextResponse.json({
+      message: "Depop integration coming soon"
+    });
+  } catch (error) {
+    console.error("Depop GET error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
 } 

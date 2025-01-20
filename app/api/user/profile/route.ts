@@ -35,17 +35,16 @@ export async function GET() {
         email: true,
         image: true,
         bio: true,
-        preferences: true,
+        username: true,
         createdAt: true,
-        platformConnections: {
+        platforms: {
           select: {
             platformId: true,
-            status: true,
-            lastSyncedAt: true,
+            isEnabled: true,
             platform: {
               select: {
                 name: true,
-                logo: true,
+                logoUrl: true,
               },
             },
           },
@@ -101,7 +100,7 @@ export async function PATCH(request: Request) {
         email: true,
         image: true,
         bio: true,
-        preferences: true,
+        username: true,
         createdAt: true,
       },
     });

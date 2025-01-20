@@ -242,11 +242,13 @@ var { r: __turbopack_require__, f: __turbopack_module_context__, i: __turbopack_
 __turbopack_esm__({
     "GET": (()=>GET),
     "POST": (()=>POST),
+    "maxDuration": (()=>maxDuration),
     "runtime": (()=>runtime)
 });
 var __TURBOPACK__imported__module__$5b$project$5d2f$app$2f$auth$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__ = __turbopack_import__("[project]/app/auth.ts [app-route] (ecmascript)");
 ;
 const runtime = "nodejs";
+const maxDuration = 10; // 10 seconds timeout
 const { GET, POST } = __TURBOPACK__imported__module__$5b$project$5d2f$app$2f$auth$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["authHandler"];
 }}),
 "[project]/ (server-utils)": ((__turbopack_context__) => {
