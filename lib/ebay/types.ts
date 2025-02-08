@@ -4,8 +4,9 @@ import { z } from "zod";
 export interface EbayAuthConfig {
   appId: string;
   certId: string;
-  devId: string;
+  devId?: string;
   ruName: string;
+  redirectUri: string;
   scopes: string[];
   sandbox?: boolean;
 }

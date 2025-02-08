@@ -15,29 +15,80 @@ export default function EbayCallbackPage() {
     async function handleCallback() {
       try {
         const code = searchParams.get("code");
+        const error = searchParams.get("error");
+        const errorDescription = searchParams.get("error_description");
+        const state = searchParams.get("state");
+
+        console.log("eBay callback received:", { code, error, errorDescription, state });
+
+        if (error) {
+          console.error("eBay auth error:", error, errorDescription);
+          window.opener?.postMessage({ type: "EBAY_AUTH_ERROR", error: errorDescription }, "*");
+          router.push(
+            `/dashboard?platform=ebay&status=error&message=${encodeURIComponent(errorDescription || "Authentication failed")}`
+          );
+          return;
+        }
+
         if (!code) {
-          throw new Error("No authorization code received");
+          const error = "No authorization code received";
+          console.error(error);
+          window.opener?.postMessage({ type: "EBAY_AUTH_ERROR", error }, "*");
+          throw new Error(error);
         }
 
-        // Exchange code for tokens
-        const response = await fetch("/api/platforms/ebay/auth", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ code }),
-        });
+        // Exchange code for tokens with retry
+        let retryCount = 0;
+        const maxRetries = 3;
 
-        if (!response.ok) {
-          throw new Error("Failed to complete authentication");
+        while (retryCount < maxRetries) {
+          try {
+            console.log(`Attempting to exchange code for token (attempt ${retryCount + 1})`);
+            const response = await fetch("/api/platforms/ebay/auth", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ code, state }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || "Failed to complete authentication");
+            }
+
+            console.log("eBay authentication successful");
+            window.opener?.postMessage({ type: "EBAY_AUTH_SUCCESS" }, "*");
+
+            // Success - redirect back to dashboard
+            router.push("/dashboard?platform=ebay&status=connected");
+            return;
+          } catch (error) {
+            console.error(`eBay callback attempt ${retryCount + 1} failed:`, error);
+            retryCount++;
+
+            if (retryCount === maxRetries) {
+              window.opener?.postMessage({ type: "EBAY_AUTH_ERROR", error: error.message }, "*");
+              throw error;
+            }
+
+            // Wait before retrying
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
         }
-
-        // Redirect back to dashboard on success
-        router.push("/dashboard?platform=ebay&status=connected");
-      } catch (error) {
+      } catch (error: any) {
         console.error("eBay callback error:", error);
-        // Redirect with error on failure
-        router.push("/dashboard?platform=ebay&status=error");
+        const errorMessage = error?.message || "An unexpected error occurred";
+        window.opener?.postMessage({ type: "EBAY_AUTH_ERROR", error: errorMessage }, "*");
+        router.push(
+          `/dashboard?platform=ebay&status=error&message=${encodeURIComponent(errorMessage)}`
+        );
+      } finally {
+        // Close the popup window
+        if (window.opener) {
+          window.close();
+        }
       }
     }
 

@@ -4,28 +4,31 @@ import type { NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
   const session = await auth();
-  const isOnDashboard = request.nextUrl.pathname.startsWith("/dashboard");
-  const isOnAuthPage = request.nextUrl.pathname.startsWith("/login") || 
-                      request.nextUrl.pathname.startsWith("/register");
+  const isAuthPage = request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/register";
+  const isHomePage = request.nextUrl.pathname === "/";
 
-  // Redirect authenticated users away from auth pages
-  if (session && isOnAuthPage) {
+  // If user is signed in and trying to access auth pages or home page, redirect to dashboard
+  if (session && (isAuthPage || isHomePage)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Protect dashboard routes
-  if (!session && isOnDashboard) {
+  // If user is not signed in and trying to access protected pages, redirect to login
+  if (!session && request.nextUrl.pathname.startsWith("/dashboard")) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return NextResponse.next();
 }
 
-// Configure paths that require session handling
 export const config = {
   matcher: [
-    "/dashboard/:path*",
-    "/login",
-    "/register",
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 }; 

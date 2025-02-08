@@ -78,4 +78,48 @@ export interface PlatformIntegration {
   // Sync operations
   syncListing(listingId: string, credentials: PlatformCredentials): Promise<PlatformListing>;
   validateProduct(product: PlatformProduct): Promise<{ valid: boolean; errors?: string[] }>;
+}
+
+// Platform-agnostic product type
+export interface UnifiedProduct {
+  title: string;
+  description: string;
+  price: number;
+  quantity: number;
+  images: string[];
+  condition: string;
+  category: string;
+  specifications: Record<string, string>;
+  userId: string;
+}
+
+// Platform-specific response types
+export interface PlatformListingResponse {
+  id: string;
+  status: string;
+  errors?: string[];
+  platformSpecificData?: any;
+}
+
+// Base adapter interface
+export abstract class PlatformAdapter {
+  abstract createListing(product: UnifiedProduct): Promise<PlatformListingResponse>;
+  abstract updateListing(id: string, product: Partial<UnifiedProduct>): Promise<PlatformListingResponse>;
+  abstract deleteListing(id: string): Promise<void>;
+  abstract getListing(id: string): Promise<UnifiedProduct>;
+  abstract syncListing(id: string): Promise<PlatformListingResponse>;
+}
+
+// Queue job types
+export interface ListingJob {
+  type: 'create' | 'update' | 'delete' | 'sync';
+  product: UnifiedProduct;
+  platforms: string[];
+  listingId?: string;
+}
+
+export interface ListingJobResult {
+  success: boolean;
+  platformResults: Map<string, PlatformListingResponse>;
+  errors?: Record<string, string>;
 } 

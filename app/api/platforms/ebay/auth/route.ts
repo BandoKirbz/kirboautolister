@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { code } = await req.json();
+    const { code, state } = await req.json();
     if (!code) {
       return NextResponse.json(
         { error: "Missing authorization code" },
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
       );
     }
 
-    await ebayService.handleCallback(session.user.id, code);
+    await ebayService.handleCallback(session.user.id, code, state);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[eBay Auth] Callback failed:", error);

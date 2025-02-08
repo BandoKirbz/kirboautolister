@@ -30,7 +30,7 @@ export const ebayDb = {
       },
     });
   },
-
+  
   async updateCredentials(userId: string, data: Partial<EbayTokens>) {
     return db.ebaycredential.update({
       where: { userId },
@@ -188,8 +188,8 @@ export const ebayDb = {
             },
           },
         },
-      }).then(listings => 
-        listings.reduce((sum, listing) => sum + (listing.product.price || 0), 0)
+      }).then((listings: any) => 
+        listings.reduce((sum: any, listing: any) => sum + (listing.product.price || 0), 0)
       ),
     ]);
 
@@ -223,7 +223,7 @@ export const ebayDb = {
   },
 
   // Get listing by eBay item ID
-  async getListing(ebayItemId: string) {
+  async getListingByEbayItemId(ebayItemId: string) {
     return db.ebaylisting.findFirst({
       where: { ebayItemId },
     });
@@ -261,3 +261,9 @@ export const ebayDb = {
     });
   },
 }; 
+export async function testGetUserStats() {
+  const userId = "your-test-user-id"; // Replace with a valid user ID from your database
+  const stats = await ebayDb.getUserStats(userId);
+  console.log("User Stats:", stats);
+}
+testGetUserStats();
