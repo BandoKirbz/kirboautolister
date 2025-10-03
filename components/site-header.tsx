@@ -9,7 +9,7 @@ import { Package } from "lucide-react";
 
 import { UserNav } from "@/components/pages/dashboard/user-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 export function SiteHeader() {
   const { data: session, status } = useSession();
@@ -22,17 +22,17 @@ export function SiteHeader() {
           <span className="ml-2 text-xl font-bold">Kirbo Autolister</span>
         </Link>
         <div className="flex items-center gap-4">
-          {status === "loading" ? null : session?.user ? (
-            <UserNav user={session.user} />
+          {status === "loading" ? (
+            <UserNav user={{}} isLoading={true} />
+          ) : session?.user ? (
+            <UserNav user={session.user} isLoading={false} />
           ) : (
             <>
-              <Link href="/login">
-                <Button variant="ghost" size="sm">
-                  Log In
-                </Button>
+              <Link href="/login" className={buttonVariants({ variant: "ghost", size: "default" })}>
+                Log In
               </Link>
-              <Link href="/register">
-                <Button size="sm">Sign Up</Button>
+              <Link href="/register" className={buttonVariants({ size: "default" })}>
+                Sign Up
               </Link>
             </>
           )}

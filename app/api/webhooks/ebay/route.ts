@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   try {
     // Get and verify eBay signature
     const headersList = headers();
-    const signature = headersList.get("x-ebay-signature");
+    const signature = (await headersList).get("x-ebay-signature");
     
     if (!signature || !verifyEbaySignature(signature, await request.clone().text())) {
       console.error("Invalid eBay signature");
@@ -58,6 +58,7 @@ export async function POST(request: Request) {
 
     // Parse and validate the notification
     const payload = await request.json();
+    console.log("eBay Notification:", payload);
     const validatedBase = baseNotificationSchema.parse(payload);
     
     // Log the notification for debugging
