@@ -18,7 +18,7 @@ if (!EBAY_APP_ID || !EBAY_CERT_ID || !EBAY_RUNAME) {
   throw new Error("Missing required eBay environment variables");
 }
 
-// Base URLs
+// Base URLs for sandbox/production
 export const EBAY_API_URL = process.env.EBAY_SANDBOX === "true" 
   ? "https://api.sandbox.ebay.com"
   : "https://api.ebay.com";
@@ -35,7 +35,8 @@ export const ebayConfig: EbayAuthConfig = {
   appId: EBAY_APP_ID,
   certId: EBAY_CERT_ID,
   ruName: EBAY_RUNAME,
-  redirectUri: `${BASE_URL}/platforms/ebay/callback`,
+  redirectUri: process.env.EBAY_REDIRECT_URI || `${BASE_URL}/api/ebay/callback`, // Use API callback URL
+  callbackUrl: process.env.EBAY_REDIRECT_URI || `${BASE_URL}/api/ebay/callback`,
   scopes: EBAY_SCOPES,
   sandbox: process.env.EBAY_SANDBOX === "true",
 };
@@ -49,10 +50,10 @@ export const EBAY_ENDPOINTS = {
   // Inventory API endpoints
   inventory: {
     base: `${EBAY_API_URL}/sell/inventory/v1`,
-    item: (sku: string) => `/inventory_item/${sku}`,
+    item: (sku: string) => `/inventory_item/${encodeURIComponent(sku)}`,
     bulk: "/bulk_create_or_replace_inventory_item",
     offer: "/offer",
-    offers: (sku: string) => `/offer/get_by_inventory_item?sku=${sku}`,
+    offers: (sku: string) => `/offer/get_by_inventory_item?sku=${encodeURIComponent(sku)}`,
   },
   
   // Account API endpoints
@@ -70,5 +71,5 @@ export const EBAY_ENDPOINTS = {
 export const getHeaders = (accessToken: string) => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${accessToken}`,
-  "X-EBAY-C-MARKETPLACE-ID": "EBAY_US", // Default to US marketplace
+  "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
 }); 

@@ -3,7 +3,7 @@
 import * as React from "react";
 
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -32,6 +32,7 @@ const formSchema = z.object({
 });
 
 export function LoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
@@ -52,16 +53,19 @@ export function LoginForm() {
           identifier: values.identifier.toLowerCase(),
           password: values.password,
           redirect: false,
+          callbackUrl: searchParams?.get("from") || "/dashboard",
         });
 
         if (signInResult?.error) {
           setError("The email/username or password you entered is incorrect.");
           form.setError("identifier", { message: " " });
           form.setError("password", { message: " " });
-        } else {
-          window.location.href = searchParams?.get("from") || "/dashboard";
+        } else if (signInResult?.ok) {
+          router.push(signInResult.url || "/dashboard");
+          router.refresh();
         }
       } catch (error) {
+        console.error("Auth error:", error);
         setError("An unexpected error occurred. Please try again.");
       }
     });
