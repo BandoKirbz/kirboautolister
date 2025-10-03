@@ -6,22 +6,39 @@ import { ebayDb } from "@/lib/ebay/db";
 // GET /api/platforms/ebay/status - Get eBay connection status and stats
 export async function GET() {
   try {
+    console.log("Fetching eBay status...");
+
     const session = await auth();
     if (!session?.user?.id) {
+      console.error("Unauthorized: No session or user ID found");
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const [credentials, stats] = await Promise.all([
-      ebayDb.getCredentials(session.user.id),
-      ebayService.getStats(session.user.id),
-    ]);
+    console.log("Session user ID:", session.user.id);
+
+    // Fetch credentials
+    const credentials = await ebayDb.getCredentials(session.user.id);
+    console.log("Credentials:", credentials);
+
+    if (!credentials) {
+      console.log("No eBay credentials found for user:", session.user.id);
+      return NextResponse.json({
+        connected: false,
+        username: null,
+        stats: null,
+      });
+    }
+
+    // Fetch stats
+    const stats = await ebayService.getStats(session.user.id);
+    console.log("Stats:", stats);
 
     return NextResponse.json({
-      connected: !!credentials,
-      username: credentials?.ebayUsername,
+      connected: true,
+      username: credentials.ebayUsername,
       stats,
     });
   } catch (error) {
@@ -32,25 +49,3 @@ export async function GET() {
     );
   }
 }
-
-// POST /api/platforms/ebay/status/sync - Trigger sync of eBay listings
-export async function POST() {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    await ebayService.syncListings(session.user.id);
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("[eBay Status] Sync failed:", error);
-    return NextResponse.json(
-      { error: "Failed to sync eBay listings" },
-      { status: 500 }
-    );
-  }
-} 

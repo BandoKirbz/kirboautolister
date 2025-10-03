@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
+import ebayLogo from "@/assets/ebayLogo.png";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -25,53 +27,150 @@ interface EbayStatus {
   connected: boolean;
   username?: string;
   stats?: EbayStats;
+  sandbox: boolean;
 }
 
 export function EbayConnection() {
   const router = useRouter();
   const { toast } = useToast();
   const [status, setStatus] = useState<EbayStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch eBay connection status
+  const fetchStatus = async () => {
+    try {
+      const response = await fetch("/api/platforms/ebay/status", {
+        // Add cache headers to optimize data fetching
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch status");
+      }
+      const data = await response.json();
+      setStatus(data);
+    } catch (error) {
+      console.error("Error fetching eBay status:", error);
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to fetch eBay connection status",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    async function fetchStatus() {
-      try {
-        const response = await fetch("/api/platforms/ebay/status");
-        if (!response.ok) throw new Error("Failed to fetch status");
-        const data = await response.json();
-        setStatus(data);
-      } catch (error) {
-        console.error("Error fetching eBay status:", error);
+    fetchStatus();
+  }, []);
+
+  // Handle URL parameters for OAuth callback results
+  useEffect(() => {
+    // Only run on client side
+    if (typeof window === "undefined") return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const platform = urlParams.get("platform");
+    const status = urlParams.get("status");
+    const message = urlParams.get("message");
+    const username = urlParams.get("username");
+
+    if (platform === "ebay") {
+      if (status === "connected") {
+        console.log("eBay auth success detected from URL");
+        fetchStatus();
+        toast({
+          title: "Success",
+          description: username
+            ? `Connected to eBay as ${username}`
+            : "Connected to eBay successfully",
+        });
+        // Clean up URL parameters
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("platform");
+        newUrl.searchParams.delete("status");
+        newUrl.searchParams.delete("message");
+        newUrl.searchParams.delete("username");
+        window.history.replaceState({}, "", newUrl.toString());
+      } else if (status === "error") {
+        console.error("eBay auth error detected from URL:", message);
         toast({
           title: "Error",
-          description: "Failed to fetch eBay connection status",
+          description: message || "Failed to connect to eBay",
           variant: "destructive",
         });
+        // Clean up URL parameters
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("platform");
+        newUrl.searchParams.delete("status");
+        newUrl.searchParams.delete("message");
+        newUrl.searchParams.delete("username");
+        window.history.replaceState({}, "", newUrl.toString());
       }
     }
+  }, []);
 
-    fetchStatus();
-  }, [toast]);
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <div className="h-6 w-6 animate-pulse rounded-full bg-gray-200" />
+            <div className="h-6 w-24 animate-pulse rounded bg-gray-200" />
+          </div>
+          <div className="mt-2 h-4 w-48 animate-pulse rounded bg-gray-200" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="space-y-2">
+                <div className="h-4 w-20 animate-pulse rounded bg-gray-200" />
+                <div className="h-8 w-16 animate-pulse rounded bg-gray-200" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+        <CardFooter>
+          <div className="h-10 w-full animate-pulse rounded bg-gray-200" />
+        </CardFooter>
+      </Card>
+    );
+  }
+
+  if (!status) return null;
 
   // Handle connect button click
   const handleConnect = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch("/api/platforms/ebay/auth");
-      if (!response.ok) throw new Error("Failed to get auth URL");
-      const { url } = await response.json();
 
-      // Open eBay auth in new window
+      // Get the auth URL from our API
+      const response = await fetch("/api/platforms/ebay/auth");
+      if (!response.ok) {
+        throw new Error("Failed to get eBay authorization URL");
+      }
+
+      const { url } = await response.json();
+      if (!url) {
+        throw new Error("Failed to get eBay authorization URL");
+      }
+
+      console.log("Redirecting to eBay auth URL:", url);
+
+      // Redirect to eBay OAuth URL
       window.location.href = url;
     } catch (error) {
       console.error("Error connecting to eBay:", error);
       toast({
         title: "Error",
-        description: "Failed to connect to eBay",
+        description: error instanceof Error ? error.message : "Failed to connect to eBay",
         variant: "destructive",
       });
-    } finally {
       setIsLoading(false);
     }
   };
@@ -132,14 +231,18 @@ export function EbayConnection() {
     }
   };
 
-  if (!status) return null;
-
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
-          <Icons.ebay className="h-6 w-6" />
-          <span>eBay</span>
+          <Image
+            src={ebayLogo}
+            alt="eBay Logo"
+            width={24}
+            height={24}
+            className="h-6 w-6 object-contain"
+          />
+          <span>eBay {status.sandbox ? "(Sandbox)" : ""}</span>
         </CardTitle>
         <CardDescription>
           {status.connected
@@ -174,22 +277,28 @@ export function EbayConnection() {
       <CardFooter className="flex justify-between">
         {status.connected ? (
           <>
-            <Button variant="outline" onClick={handleSync} disabled={isLoading}>
-              {isLoading ? (
-                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Icons.refresh className="mr-2 h-4 w-4" />
-              )}
-              Sync Listings
-            </Button>
-            <Button variant="destructive" onClick={handleDisconnect} disabled={isLoading}>
-              {isLoading ? (
-                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Icons.logout className="mr-2 h-4 w-4" />
-              )}
-              Disconnect
-            </Button>
+            <div className="flex space-x-2">
+              <Button className="bg-secondary" onClick={handleConnect} disabled={isLoading}>
+                {isLoading ? (
+                  <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Icons.refresh className="mr-2 h-4 w-4" />
+                )}
+                Reconnect
+              </Button>
+              <Button
+                className="bg-destructive text-destructive-foreground"
+                onClick={handleDisconnect}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Icons.logout className="mr-2 h-4 w-4" />
+                )}
+                Disconnect
+              </Button>
+            </div>
           </>
         ) : (
           <Button onClick={handleConnect} disabled={isLoading} className="w-full">

@@ -1,7 +1,9 @@
-import { authHandler } from "@/app/auth";
+import { authHandlers } from "@/app/auth";
 
-// Specify Node.js runtime and increase timeout for auth operations
+// app/api/auth/[...nextauth]/route.ts
+
+// Specify Node.js runtime for bcrypt compatibility
 export const runtime = "nodejs";
-export const maxDuration = 10; // 10 seconds timeout
+export const dynamic = "force-dynamic";
 
-export const { GET, POST } = authHandler; 
+export const { GET, POST } = authHandlers; 
