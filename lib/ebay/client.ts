@@ -69,47 +69,79 @@ export class EbayClient {
 
   async exchangeCodeForToken(code: string, state?: string): Promise<any> {
     try {
-      // Validate state if provided
-      if (state && !this.validateState(state)) {
-        throw new Error("Invalid state parameter");
+      console.log("Exchanging code for token:", {
+        environment: validatedConfig.sandbox ? "SANDBOX" : "PRODUCTION",
+        timestamp: new Date().toISOString(),
+        code: code.substring(0, 10) + "..." // Log first 10 chars for debugging
+      });
+
+      if (!code) {
+        throw new Error("Authorization code is required");
       }
 
-      console.log("Exchanging code for token...");
-      console.log("Environment:", validatedConfig.sandbox ? "SANDBOX" : "PRODUCTION");
-      console.log("RuName:", validatedConfig.ruName);
-      console.log("Code:", code);
+      const params = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: validatedConfig.ruName, // eBay requires RuName for token exchange
+      });
 
-      const response = await this.authClient.exchangeCodeForAccessToken(
-        validatedConfig.sandbox ? "SANDBOX" : "PRODUCTION",
-        code
+      console.log("Token exchange request:", {
+        url: EBAY_ENDPOINTS.token,
+        redirect_uri: validatedConfig.ruName, // Using RuName for token exchange
+        code: code.substring(0, 20) + "...",
+        timestamp: new Date().toISOString()
+      });
+
+      const response = await this.axiosInstance.post(
+        EBAY_ENDPOINTS.token,
+        params.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: `Basic ${Buffer.from(
+              `${validatedConfig.appId}:${validatedConfig.certId}`
+            ).toString('base64')}`,
+          },
+        }
       );
 
-      console.log("Raw token exchange response:", response);
-      
-      let data;
-      try {
-        data = JSON.parse(response);
-        console.log("Parsed token data:", {
-          ...data,
-          access_token: "HIDDEN",
-          refresh_token: "HIDDEN",
-        });
-      } catch (parseError) {
-        console.error("Failed to parse token response:", parseError);
-        throw new Error("Invalid token response format");
+      if (!response.data || !response.data.access_token) {
+        throw new Error("Invalid token response from eBay");
       }
 
-      return {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresAt: new Date(Date.now() + data.expires_in * 1000),
-      };
+      console.log("Token exchange successful:", {
+        tokenType: response.data.token_type,
+        expiresIn: response.data.expires_in,
+        timestamp: new Date().toISOString(),
+        hasAccessToken: !!response.data.access_token,
+        hasRefreshToken: !!response.data.refresh_token
+      });
+
+      return response.data;
     } catch (error) {
-      console.error("Error exchanging code for token:", error);
-      if (error instanceof AxiosError) {
-        console.error("API Error Response:", error.response?.data);
+      console.error("Token exchange error:", {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+        requestUrl: EBAY_ENDPOINTS.token,
+        environment: validatedConfig.sandbox ? "SANDBOX" : "PRODUCTION"
+      });
+
+      if (error instanceof AxiosError && error.response) {
+        console.error("eBay API error response:", {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          requestUrl: EBAY_ENDPOINTS.token,
+          requestParams: {
+            grant_type: 'authorization_code',
+            code: code.substring(0, 20) + "...",
+            redirect_uri: validatedConfig.ruName
+          }
+        });
       }
-      throw error;
+
+      throw this.handleError(error, "Failed to exchange code for token");
     }
   }
 

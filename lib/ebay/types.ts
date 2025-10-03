@@ -7,14 +7,38 @@ export interface EbayAuthConfig {
   devId?: string;
   ruName: string;
   redirectUri: string;
+  callbackUrl?: string;
   scopes: string[];
   sandbox?: boolean;
+}
+
+export interface EbayAuthResponse {
+  sandboxToken?: string;
+  productionToken?: string;
+  username?: string;
+  timestamp: Date;
+  scope?: string[];
+  tokenType?: string;
+  expiresIn?: number;
+  refreshToken?: string;
+  error?: string;
+  errorDescription?: string;
+}
+
+export interface EbayConnectionStatus {
+  connected: boolean;
+  username?: string;
+  lastConnected?: Date;
+  environment: 'SANDBOX' | 'PRODUCTION';
+  error?: string;
 }
 
 export interface EbayTokens {
   accessToken: string;
   refreshToken: string;
   expiresAt: Date;
+  username?: string;
+  scope?: string[];
 }
 
 // eBay API Response Types

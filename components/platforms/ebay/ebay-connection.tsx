@@ -69,29 +69,50 @@ export function EbayConnection() {
     fetchStatus();
   }, []);
 
-  // Handle window messages from the eBay auth popup
+  // Handle URL parameters for OAuth callback results
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data.type === "EBAY_AUTH_SUCCESS") {
-        console.log("eBay auth success message received");
-        await fetchStatus();
+    // Only run on client side
+    if (typeof window === "undefined") return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const platform = urlParams.get("platform");
+    const status = urlParams.get("status");
+    const message = urlParams.get("message");
+    const username = urlParams.get("username");
+
+    if (platform === "ebay") {
+      if (status === "connected") {
+        console.log("eBay auth success detected from URL");
+        fetchStatus();
         toast({
           title: "Success",
-          description: "Connected to eBay successfully",
+          description: username
+            ? `Connected to eBay as ${username}`
+            : "Connected to eBay successfully",
         });
-      } else if (event.data.type === "EBAY_AUTH_ERROR") {
-        console.error("eBay auth error message received:", event.data.error);
+        // Clean up URL parameters
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("platform");
+        newUrl.searchParams.delete("status");
+        newUrl.searchParams.delete("message");
+        newUrl.searchParams.delete("username");
+        window.history.replaceState({}, "", newUrl.toString());
+      } else if (status === "error") {
+        console.error("eBay auth error detected from URL:", message);
         toast({
           title: "Error",
-          description: event.data.error || "Failed to connect to eBay",
+          description: message || "Failed to connect to eBay",
           variant: "destructive",
         });
+        // Clean up URL parameters
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("platform");
+        newUrl.searchParams.delete("status");
+        newUrl.searchParams.delete("message");
+        newUrl.searchParams.delete("username");
+        window.history.replaceState({}, "", newUrl.toString());
       }
-      setIsLoading(false);
-    };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    }
   }, []);
 
   if (isLoading) {
@@ -127,43 +148,22 @@ export function EbayConnection() {
   const handleConnect = async () => {
     try {
       setIsLoading(true);
+
+      // Get the auth URL from our API
       const response = await fetch("/api/platforms/ebay/auth");
-      if (!response.ok) throw new Error("Failed to get auth URL");
-      const { url } = await response.json();
-
-      // Open eBay auth in new window
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-
-      const authWindow = window.open(
-        url,
-        "eBay Authorization",
-        `width=${width},height=${height},left=${left},top=${top},toolbar=0,scrollbars=1,status=1`
-      );
-
-      if (!authWindow) {
-        throw new Error(
-          "Failed to open eBay authorization window. Please allow popups for this site."
-        );
+      if (!response.ok) {
+        throw new Error("Failed to get eBay authorization URL");
       }
 
-      // Set a timeout to close the window and show error if it takes too long
-      setTimeout(
-        () => {
-          if (authWindow && !authWindow.closed) {
-            authWindow.close();
-            setIsLoading(false);
-            toast({
-              title: "Error",
-              description: "eBay authorization timed out. Please try again.",
-              variant: "destructive",
-            });
-          }
-        },
-        5 * 60 * 1000
-      ); // 5 minutes timeout
+      const { url } = await response.json();
+      if (!url) {
+        throw new Error("Failed to get eBay authorization URL");
+      }
+
+      console.log("Redirecting to eBay auth URL:", url);
+
+      // Redirect to eBay OAuth URL
+      window.location.href = url;
     } catch (error) {
       console.error("Error connecting to eBay:", error);
       toast({
@@ -284,7 +284,7 @@ export function EbayConnection() {
                 ) : (
                   <Icons.refresh className="mr-2 h-4 w-4" />
                 )}
-                Reconnect to Sandbox
+                Reconnect
               </Button>
               <Button
                 className="bg-destructive text-destructive-foreground"
@@ -307,7 +307,7 @@ export function EbayConnection() {
             ) : (
               <Icons.login className="mr-2 h-4 w-4" />
             )}
-            Connect to eBay Sandbox
+            Connect to eBay
           </Button>
         )}
       </CardFooter>
