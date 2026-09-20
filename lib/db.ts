@@ -1,11 +1,6 @@
-import { PrismaClient } from "@prisma/client";
-
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-
-export const db = global.prisma || new PrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  global.prisma = db;
-} 
+// `lib/db.ts` and `lib/prisma.ts` used to each instantiate their own
+// PrismaClient, which meant the app had two separate connection pools /
+// global singletons pointed at the same database. This file now just
+// re-exports the single canonical client from `lib/prisma.ts` so existing
+// `import { db } from "@/lib/db"` call sites keep working.
+export { prisma as db } from "./prisma";

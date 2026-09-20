@@ -1,3 +1,5 @@
+import { Suspense } from "react"
+
 import { Metadata } from "next"
 import AddProductForm from "@/components/forms/add-product-form"
 
@@ -15,7 +17,9 @@ export default function AddProductPage() {
           Create a new product listing to sell across multiple platforms
         </p>
       </div>
-      <AddProductForm />
+      <Suspense fallback={null}>
+        <AddProductForm />
+      </Suspense>
     </div>
   )
 } 

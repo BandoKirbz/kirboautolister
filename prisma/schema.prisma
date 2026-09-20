@@ -252,6 +252,7 @@ enum EbayListingStatus {
   ACTIVE
   ERROR
   ENDED
+  OUT_OF_STOCK
 
   @@schema("kirbo407")
 }

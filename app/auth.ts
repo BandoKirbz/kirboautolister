@@ -16,6 +16,12 @@ export const authOptions: NextAuthConfig = {
     signIn: "/login",
   },
   trustHost: true,
+  // NOTE: cookies must only be marked `secure` when actually served over
+  // HTTPS. Hardcoding `secure: true` silently breaks sessions on plain
+  // http://localhost (the browser refuses to send secure cookies over
+  // HTTP), which is why the eBay OAuth callback previously couldn't find
+  // the user's session and fell back to an insecure workaround.
+  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
   cookies: {
     sessionToken: {
       name: `next-auth.session-token`,
@@ -23,7 +29,7 @@ export const authOptions: NextAuthConfig = {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true
+        secure: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
       }
     },
     csrfToken: {
@@ -32,7 +38,7 @@ export const authOptions: NextAuthConfig = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: true
+        secure: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
       }
     }
   },
@@ -71,7 +77,7 @@ export const authOptions: NextAuthConfig = {
           },
         });
 
-        if (!user) {
+        if (!user || !user.password) {
           console.log("No user found");
           return null;
         }
@@ -109,7 +115,7 @@ export const authOptions: NextAuthConfig = {
       return session;
     },
   },
-  debug: true,
+  debug: process.env.NODE_ENV !== "production",
 };
 
 export const { handlers: authHandlers, auth, signIn, signOut } = NextAuth(authOptions);

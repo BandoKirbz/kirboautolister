@@ -4,6 +4,7 @@ import { type NextRequest } from "next/server";
 
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
+import { ebayService } from "@/lib/ebay/service";
 
 // Product update validation schema
 const productUpdateSchema = z.object({
@@ -29,7 +30,7 @@ const productUpdateSchema = z.object({
 // GET /api/products/[id] - Get a single product
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -37,7 +38,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
 
     const product = await db.product.findUnique({
       where: {
@@ -81,7 +82,7 @@ export async function GET(
 // PATCH /api/products/[id] - Update a product
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -89,7 +90,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
 
     const json = await request.json();
     const validatedData = productUpdateSchema.parse(json);
@@ -194,6 +195,31 @@ export async function PATCH(
       },
     });
 
+    // Push the change to eBay (synchronously) if eBay is one of the
+    // selected platforms and this isn't a draft. As with product create,
+    // a failure here doesn't fail the whole request - it's surfaced as a
+    // warning and the eBay listing row is marked ERROR.
+    let ebayError: string | undefined;
+    const wantsEbay = validatedData.platforms
+      ? validatedData.platforms.includes("ebay")
+      : updatedProduct.listings.some((l) => l.platformId === "ebay");
+
+    if (!isDraft && wantsEbay) {
+      try {
+        await ebayService.updateListing(session.user.id, id, {
+          title: updateData.name,
+          description: updateData.description,
+          price: updateData.price,
+          quantity: updateData.quantity,
+          condition: updateData.condition,
+          images: validatedData.images,
+        });
+      } catch (err) {
+        ebayError = err instanceof Error ? err.message : "Failed to update eBay listing";
+        console.error("[PRODUCT_PATCH] eBay update failed:", ebayError);
+      }
+    }
+
     // Format price with $ prefix
     const formattedProduct = {
       ...updatedProduct,
@@ -201,7 +227,8 @@ export async function PATCH(
       listings: updatedProduct.listings.map(listing => ({
         ...listing,
         price: `$${listing.price.toFixed(2)}`
-      }))
+      })),
+      ...(ebayError && { warning: `Product updated, but eBay sync failed: ${ebayError}` }),
     };
 
     return NextResponse.json(formattedProduct);
@@ -231,7 +258,7 @@ export async function PATCH(
 // DELETE /api/products/[id] - Delete a product
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -239,7 +266,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
 
     console.log("[PRODUCT_DELETE] Attempting to delete product:", id);
 
@@ -257,6 +284,19 @@ export async function DELETE(
     }
 
     console.log("[PRODUCT_DELETE] Found product, deleting...");
+
+    // End the eBay listing first (if any) so it doesn't stay live after
+    // we remove our local record of it.
+    const ebayListing = await db.listing.findFirst({
+      where: { productId: id, platformId: "ebay" },
+    });
+    if (ebayListing) {
+      try {
+        await ebayService.deleteListing(session.user.id, id);
+      } catch (err) {
+        console.error("[PRODUCT_DELETE] Failed to end eBay listing:", err);
+      }
+    }
 
     // Delete related records first
     await db.productimage.deleteMany({

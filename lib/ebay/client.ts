@@ -2,11 +2,13 @@ import axios, { AxiosError, AxiosInstance } from "axios";
 import EbayAuthToken from "ebay-oauth-nodejs-client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { EBAY_API_URL, EBAY_ENDPOINTS, ebayConfig, getHeaders } from "./config";
+import { EBAY_API_URL, EBAY_ENDPOINTS, EBAY_MARKETPLACE_ID, ebayConfig, getHeaders } from "./config";
 import {
   EbayApiResponse,
+  EbayBusinessPolicies,
   EbayError,
   EbayInventoryItem,
+  EbayMerchantLocation,
   EbayOffer,
   EbayTokens,
   ebayInventoryItemSchema,
@@ -28,7 +30,15 @@ export const validatedConfig = {
   ruName: process.env.EBAY_RUNAME!,
   redirectUri: ebayConfig.redirectUri,
   sandbox: process.env.EBAY_SANDBOX === "true",
-  scopes: (process.env.EBAY_SCOPES || "").split(" ").filter(Boolean),
+  // Falls back to the standard Sell API scope set (see ebayConfig.scopes in
+  // ./config.ts) when EBAY_SCOPES isn't set. Previously this silently
+  // resolved to an *empty* scope list whenever EBAY_SCOPES wasn't in
+  // .env.local (it never was documented in EBAY_SETUP.md), which produced
+  // an OAuth authorization URL with no scopes and made the whole sandbox
+  // connect flow fail in confusing ways.
+  scopes: process.env.EBAY_SCOPES
+    ? process.env.EBAY_SCOPES.split(" ").filter(Boolean)
+    : ebayConfig.scopes,
 };
 
 export class EbayClient {
@@ -199,7 +209,7 @@ export class EbayClient {
   async createOffer(
     userId: string,
     offer: EbayOffer
-  ): Promise<EbayApiResponse<{ offerId: string }>> {
+  ): Promise<EbayApiResponse<{ offerId: string }> & { offerId?: string }> {
     try {
       if (!userId || typeof userId !== "string") {
         throw new Error("Invalid user ID");
@@ -219,6 +229,192 @@ export class EbayClient {
       return response.data;
     } catch (error) {
       throw this.handleError(error, "Failed to create offer");
+    }
+  }
+
+  async updateInventoryItem(
+    userId: string,
+    item: EbayInventoryItem
+  ): Promise<void> {
+    try {
+      const validatedItem = ebayInventoryItemSchema.parse(item);
+      const credentials = await this.getUserCredentials(userId);
+
+      await this.axiosInstance.put(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.item(item.sku)}`,
+        validatedItem,
+        { headers: getHeaders(credentials.accessToken) }
+      );
+    } catch (error) {
+      throw this.handleError(error, "Failed to update inventory item");
+    }
+  }
+
+  async deleteInventoryItem(userId: string, sku: string): Promise<void> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      await this.axiosInstance.delete(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.item(sku)}`,
+        { headers: getHeaders(credentials.accessToken) }
+      );
+    } catch (error) {
+      // eBay returns 404 if it's already gone - treat that as success.
+      if (error instanceof AxiosError && error.response?.status === 404) return;
+      throw this.handleError(error, "Failed to delete inventory item");
+    }
+  }
+
+  async updateOffer(userId: string, offerId: string, offer: Partial<EbayOffer>): Promise<void> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      await this.axiosInstance.put(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.offerById(offerId)}`,
+        offer,
+        { headers: getHeaders(credentials.accessToken) }
+      );
+    } catch (error) {
+      throw this.handleError(error, "Failed to update offer");
+    }
+  }
+
+  async getOffersForSku(userId: string, sku: string): Promise<any[]> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      const response = await this.axiosInstance.get(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.offers(sku)}`,
+        { headers: getHeaders(credentials.accessToken) }
+      );
+      return response.data?.offers || [];
+    } catch (error) {
+      if (error instanceof AxiosError && error.response?.status === 404) return [];
+      throw this.handleError(error, "Failed to fetch offers for SKU");
+    }
+  }
+
+  /**
+   * Publish a previously created offer, making it a live eBay listing.
+   * Returns the resulting eBay listing (item) id.
+   */
+  async publishOffer(userId: string, offerId: string): Promise<string> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      const response = await this.axiosInstance.post(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.publishOffer(offerId)}`,
+        {},
+        { headers: getHeaders(credentials.accessToken) }
+      );
+      return response.data.listingId;
+    } catch (error) {
+      throw this.handleError(error, "Failed to publish offer");
+    }
+  }
+
+  async withdrawOffer(userId: string, offerId: string): Promise<void> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      await this.axiosInstance.post(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.withdrawOffer(offerId)}`,
+        {},
+        { headers: getHeaders(credentials.accessToken) }
+      );
+    } catch (error) {
+      // Already ended/withdrawn - not fatal.
+      if (error instanceof AxiosError && error.response?.status === 404) return;
+      throw this.handleError(error, "Failed to withdraw offer");
+    }
+  }
+
+  /**
+   * Fetch the seller's business policies (fulfillment/payment/return) for
+   * the configured marketplace. eBay requires the seller to have opted in
+   * to Business Policies and created at least one of each in their (sandbox
+   * or production) account before offers can be published - this cannot be
+   * done via API, only via Seller Hub / API account setup by the seller.
+   */
+  async getDefaultBusinessPolicies(userId: string): Promise<EbayBusinessPolicies> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      const headers = getHeaders(credentials.accessToken);
+      const params = { marketplace_id: EBAY_MARKETPLACE_ID };
+
+      const [fulfillment, payment, ret] = await Promise.all([
+        this.axiosInstance.get(
+          `${EBAY_ENDPOINTS.account.base}${EBAY_ENDPOINTS.account.policies.fulfillment}`,
+          { headers, params }
+        ),
+        this.axiosInstance.get(
+          `${EBAY_ENDPOINTS.account.base}${EBAY_ENDPOINTS.account.policies.payment}`,
+          { headers, params }
+        ),
+        this.axiosInstance.get(
+          `${EBAY_ENDPOINTS.account.base}${EBAY_ENDPOINTS.account.policies.return}`,
+          { headers, params }
+        ),
+      ]);
+
+      const fulfillmentPolicyId = fulfillment.data?.fulfillmentPolicies?.[0]?.fulfillmentPolicyId;
+      const paymentPolicyId = payment.data?.paymentPolicies?.[0]?.paymentPolicyId;
+      const returnPolicyId = ret.data?.returnPolicies?.[0]?.returnPolicyId;
+
+      if (!fulfillmentPolicyId || !paymentPolicyId || !returnPolicyId) {
+        throw new Error(
+          "No eBay business policies found for this account. Before you can publish " +
+            "listings, opt in to Business Policies and create at least one shipping " +
+            "(fulfillment), payment, and return policy for your eBay (sandbox) seller " +
+            "account, then try again."
+        );
+      }
+
+      return { fulfillmentPolicyId, paymentPolicyId, returnPolicyId };
+    } catch (error) {
+      throw this.handleError(error, "Failed to fetch eBay business policies");
+    }
+  }
+
+  /**
+   * Ensure the seller has at least one inventory location, creating a
+   * default one from EBAY_MERCHANT_LOCATION_* env vars if needed. eBay
+   * requires a merchantLocationKey on every offer.
+   */
+  async ensureMerchantLocation(userId: string): Promise<EbayMerchantLocation> {
+    try {
+      const credentials = await this.getUserCredentials(userId);
+      const headers = getHeaders(credentials.accessToken);
+
+      const existing = await this.axiosInstance.get(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.locations}`,
+        { headers }
+      );
+
+      const locations = existing.data?.locations || [];
+      if (locations.length > 0) {
+        return { merchantLocationKey: locations[0].merchantLocationKey };
+      }
+
+      const merchantLocationKey = process.env.EBAY_MERCHANT_LOCATION_KEY || "default-location";
+      await this.axiosInstance.post(
+        `${EBAY_ENDPOINTS.inventory.base}${EBAY_ENDPOINTS.inventory.locationByKey(
+          merchantLocationKey
+        )}`,
+        {
+          location: {
+            address: {
+              country: process.env.EBAY_MERCHANT_LOCATION_COUNTRY || "US",
+              postalCode: process.env.EBAY_MERCHANT_LOCATION_POSTAL_CODE || "94105",
+              stateOrProvince: process.env.EBAY_MERCHANT_LOCATION_STATE || "CA",
+              city: process.env.EBAY_MERCHANT_LOCATION_CITY || "San Francisco",
+            },
+          },
+          locationTypes: ["WAREHOUSE"],
+          name: "Default Location",
+          merchantLocationStatus: "ENABLED",
+        },
+        { headers }
+      );
+
+      return { merchantLocationKey };
+    } catch (error) {
+      throw this.handleError(error, "Failed to set up eBay inventory location");
     }
   }
 

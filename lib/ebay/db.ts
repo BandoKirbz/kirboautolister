@@ -260,10 +260,4 @@ export const ebayDb = {
       },
     });
   },
-}; 
-export async function testGetUserStats() {
-  const userId = "your-test-user-id"; // Replace with a valid user ID from your database
-  const stats = await ebayDb.getUserStats(userId);
-  console.log("User Stats:", stats);
-}
-testGetUserStats();
+};

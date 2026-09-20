@@ -114,14 +114,15 @@ async function handleItemSold(data: z.infer<typeof itemSoldSchema>) {
     return;
   }
 
+  const existingSpecifics = (listing.specificsList as Record<string, any>) || {};
   await ebayDb.updateListing(listing.productId, {
     status: "ACTIVE",
     lastSyncedAt: new Date(),
     // Store sale information
     specificsList: {
-      ...listing.specificsList,
+      ...existingSpecifics,
       sales: [
-        ...(listing.specificsList?.sales || []),
+        ...(existingSpecifics.sales || []),
         {
           orderId: data.orderId,
           transactionId: data.transactionId,
@@ -145,13 +146,14 @@ async function handleItemRevised(data: z.infer<typeof itemRevisedSchema>) {
     return;
   }
 
+  const existingSpecifics = (listing.specificsList as Record<string, any>) || {};
   await ebayDb.updateListing(listing.productId, {
     lastSyncedAt: new Date(),
     // Store revision history
     specificsList: {
-      ...listing.specificsList,
+      ...existingSpecifics,
       revisions: [
-        ...(listing.specificsList?.revisions || []),
+        ...(existingSpecifics.revisions || []),
         {
           changes: data.changes,
           timestamp: data.timestamp,

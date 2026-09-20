@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
+import { ebayService } from "@/lib/ebay/service";
 
 // Product validation schema
 const productSchema = z.object({
@@ -196,13 +197,36 @@ export async function POST(req: Request) {
         });
       }
 
+      // Actually publish to eBay (synchronously) if it was selected and
+      // this isn't a draft. Failures here don't fail the whole request -
+      // the product/listing rows are already saved; the eBay listing row
+      // is marked ERROR with the reason so the UI can surface it and the
+      // user can retry.
+      let ebayError: string | undefined;
+      if (!validatedData.isDraft && validatedData.platforms.includes("ebay")) {
+        try {
+          await ebayService.createListing(session.user.id, product.id, {
+            title: validatedData.title || "Untitled Draft",
+            description: validatedData.description || "",
+            price: validatedData.price || 0,
+            quantity: validatedData.quantity || 1,
+            condition: validatedData.condition || "good",
+            images: validatedData.images,
+          });
+        } catch (err) {
+          ebayError = err instanceof Error ? err.message : "Failed to publish to eBay";
+          console.error("[PRODUCTS_POST] eBay publish failed:", ebayError);
+        }
+      }
+
       return NextResponse.json({ 
         success: true, 
         productId: product.id,
         product: {
           ...product,
           price: `$${product.price.toFixed(2)}`
-        }
+        },
+        ...(ebayError && { warning: `Product saved, but eBay publish failed: ${ebayError}` }),
       });
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {

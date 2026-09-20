@@ -41,6 +41,10 @@ export const ebayConfig: EbayAuthConfig = {
   sandbox: process.env.EBAY_SANDBOX === "true",
 };
 
+// The eBay marketplace this app lists on. Business policies, categories,
+// and inventory locations are all scoped to a marketplace.
+export const EBAY_MARKETPLACE_ID = process.env.EBAY_MARKETPLACE_ID || "EBAY_US";
+
 // API endpoints
 export const EBAY_ENDPOINTS = {
   // OAuth endpoints
@@ -53,7 +57,12 @@ export const EBAY_ENDPOINTS = {
     item: (sku: string) => `/inventory_item/${encodeURIComponent(sku)}`,
     bulk: "/bulk_create_or_replace_inventory_item",
     offer: "/offer",
-    offers: (sku: string) => `/offer/get_by_inventory_item?sku=${encodeURIComponent(sku)}`,
+    offerById: (offerId: string) => `/offer/${encodeURIComponent(offerId)}`,
+    offers: (sku: string) => `/offer?sku=${encodeURIComponent(sku)}`,
+    publishOffer: (offerId: string) => `/offer/${encodeURIComponent(offerId)}/publish`,
+    withdrawOffer: (offerId: string) => `/offer/${encodeURIComponent(offerId)}/withdraw`,
+    locations: "/location",
+    locationByKey: (key: string) => `/location/${encodeURIComponent(key)}`,
   },
   
   // Account API endpoints

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-import ebayLogo from "@/assets/ebayLogo.png";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -235,13 +233,7 @@ export function EbayConnection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
-          <Image
-            src={ebayLogo}
-            alt="eBay Logo"
-            width={24}
-            height={24}
-            className="h-6 w-6 object-contain"
-          />
+          <Icons.ebay className="h-6 w-6" />
           <span>eBay {status.sandbox ? "(Sandbox)" : ""}</span>
         </CardTitle>
         <CardDescription>

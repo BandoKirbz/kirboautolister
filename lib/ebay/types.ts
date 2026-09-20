@@ -151,6 +151,27 @@ export const ebayInventoryItemSchema = z.object({
     .optional(),
 });
 
+// Input for creating/updating a listing from our own product data
+export interface EbayListingInput {
+  title: string;
+  description: string;
+  price: number;
+  quantity: number;
+  condition: string;
+  images: string[];
+  categoryId?: string;
+}
+
+export interface EbayBusinessPolicies {
+  fulfillmentPolicyId: string;
+  paymentPolicyId: string;
+  returnPolicyId: string;
+}
+
+export interface EbayMerchantLocation {
+  merchantLocationKey: string;
+}
+
 export const ebayOfferSchema = z.object({
   offerId: z.string().optional(),
   sku: z.string(),
