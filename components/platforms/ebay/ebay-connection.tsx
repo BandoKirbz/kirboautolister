@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 
-import { useRouter } from "next/navigation";
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,7 +38,6 @@ interface EbayStatus {
 }
 
 export function EbayConnection() {
-  const router = useRouter();
   const { toast } = useToast();
   const [status, setStatus] = useState<EbayStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -147,25 +155,21 @@ export function EbayConnection() {
     try {
       setIsLoading(true);
 
-      // Get the auth URL from our API
       const response = await fetch("/api/platforms/ebay/auth");
-      if (!response.ok) {
-        throw new Error("Failed to get eBay authorization URL");
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.url) {
+        throw new Error(
+          data.error ||
+            "Failed to get eBay authorization URL. Set EBAY_CLIENT_SECRET (Cert ID) in .env.local and use an HTTPS RuName Accept URL."
+        );
       }
 
-      const { url } = await response.json();
-      if (!url) {
-        throw new Error("Failed to get eBay authorization URL");
-      }
-
-      console.log("Redirecting to eBay auth URL:", url);
-
-      // Redirect to eBay OAuth URL
-      window.location.href = url;
+      window.location.href = data.url;
     } catch (error) {
       console.error("Error connecting to eBay:", error);
       toast({
-        title: "Error",
+        title: "eBay not ready",
         description: error instanceof Error ? error.message : "Failed to connect to eBay",
         variant: "destructive",
       });
@@ -183,7 +187,7 @@ export function EbayConnection() {
 
       if (!response.ok) throw new Error("Failed to disconnect");
 
-      setStatus((prev) => (prev ? { ...prev, connected: false } : null));
+      setStatus((prev) => (prev ? { ...prev, connected: false, username: undefined, stats: undefined } : null));
       toast({
         title: "Success",
         description: "Disconnected from eBay successfully",
@@ -193,35 +197,6 @@ export function EbayConnection() {
       toast({
         title: "Error",
         description: "Failed to disconnect from eBay",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle sync button click
-  const handleSync = async () => {
-    try {
-      setIsLoading(true);
-      const response = await fetch("/api/platforms/ebay/status/sync", {
-        method: "POST",
-      });
-
-      if (!response.ok) throw new Error("Failed to sync");
-
-      toast({
-        title: "Success",
-        description: "eBay listings synced successfully",
-      });
-
-      // Refresh status after sync
-      router.refresh();
-    } catch (error) {
-      console.error("Error syncing eBay listings:", error);
-      toast({
-        title: "Error",
-        description: "Failed to sync eBay listings",
         variant: "destructive",
       });
     } finally {
@@ -278,18 +253,41 @@ export function EbayConnection() {
                 )}
                 Reconnect
               </Button>
-              <Button
-                className="bg-destructive text-destructive-foreground"
-                onClick={handleDisconnect}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Icons.logout className="mr-2 h-4 w-4" />
-                )}
-                Disconnect
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    className="bg-destructive text-destructive-foreground"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Icons.logout className="mr-2 h-4 w-4" />
+                    )}
+                    Disconnect
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Disconnect eBay?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      You'll need to reconnect (sign in to eBay again) before you can publish or
+                      update listings from here. Any listings already live on eBay stay live -
+                      disconnecting only removes this app's ability to manage them until you
+                      reconnect.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDisconnect}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Disconnect
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </>
         ) : (

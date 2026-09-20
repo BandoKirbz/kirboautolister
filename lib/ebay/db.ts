@@ -1,5 +1,13 @@
 import { db } from "@/lib/db";
+import { decrypt, encrypt } from "@/lib/crypto";
 import { EbayTokens } from "./types";
+
+/** Decrypt the token fields on a row read from the DB before handing it to callers. */
+function decryptCredential<T extends { accessToken: string; refreshToken: string }>(
+  row: T
+): T {
+  return { ...row, accessToken: decrypt(row.accessToken), refreshToken: decrypt(row.refreshToken) };
+}
 
 export interface CreateEbayCredentialsData extends EbayTokens {
   userId: string;
@@ -17,34 +25,41 @@ export interface UpdateEbayListingData {
 }
 
 export const ebayDb = {
-  // Credential operations
+  // Credential operations.
+  // accessToken/refreshToken are encrypted at rest (lib/crypto.ts) - a DB
+  // leak alone should not hand over live eBay seller account access.
   async createCredentials(data: CreateEbayCredentialsData) {
-    return db.ebaycredential.create({
+    const row = await db.ebaycredential.create({
       data: {
         userId: data.userId,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
+        accessToken: encrypt(data.accessToken),
+        refreshToken: encrypt(data.refreshToken),
         expiresAt: data.expiresAt,
         ebayUsername: data.ebayUsername,
         scope: data.scope,
       },
     });
+    return decryptCredential(row);
   },
-  
+
   async updateCredentials(userId: string, data: Partial<EbayTokens>) {
-    return db.ebaycredential.update({
+    const row = await db.ebaycredential.update({
       where: { userId },
       data: {
         ...data,
+        ...(data.accessToken !== undefined && { accessToken: encrypt(data.accessToken) }),
+        ...(data.refreshToken !== undefined && { refreshToken: encrypt(data.refreshToken) }),
         updatedAt: new Date(),
       },
     });
+    return decryptCredential(row);
   },
 
   async getCredentials(userId: string) {
-    return db.ebaycredential.findUnique({
+    const row = await db.ebaycredential.findUnique({
       where: { userId },
     });
+    return row ? decryptCredential(row) : row;
   },
 
   async deleteCredentials(userId: string) {

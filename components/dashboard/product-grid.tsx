@@ -35,6 +35,9 @@ interface ProductGridProps {
       id: string;
       status: ListingStatus;
       price: number;
+      platformListingId?: string | null;
+      listingUrl?: string | null;
+      errors?: string | null;
       platform: {
         id: string;
         name: string;

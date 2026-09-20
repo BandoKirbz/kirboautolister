@@ -5,11 +5,13 @@ import { type NextRequest } from "next/server";
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
 import { ebayService } from "@/lib/ebay/service";
+import { toPublicImageUrl } from "@/lib/ebay/utils";
 
 // Product update validation schema
 const productUpdateSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters").optional(),
   description: z.string().optional(),
+  brand: z.string().optional(),
   condition: z.enum(["new-with-tags", "new-without-tags", "very-good", "good", "fair"]).optional(),
   price: z.number().min(0.01, "Price must be greater than 0").optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1").optional(),
@@ -116,6 +118,7 @@ export async function PATCH(
     const updateData: any = {
       name: validatedData.title || existingProduct.name,
       description: validatedData.description || existingProduct.description,
+      brand: validatedData.brand !== undefined ? validatedData.brand : existingProduct.brand,
       condition: validatedData.condition || existingProduct.condition,
       quantity: validatedData.quantity || existingProduct.quantity,
       price: validatedData.price !== undefined ? validatedData.price : existingProduct.price,
@@ -200,6 +203,7 @@ export async function PATCH(
     // a failure here doesn't fail the whole request - it's surfaced as a
     // warning and the eBay listing row is marked ERROR.
     let ebayError: string | undefined;
+    const hadEbayListing = existingProduct.listings.some((l) => l.platformId === "ebay");
     const wantsEbay = validatedData.platforms
       ? validatedData.platforms.includes("ebay")
       : updatedProduct.listings.some((l) => l.platformId === "ebay");
@@ -209,14 +213,29 @@ export async function PATCH(
         await ebayService.updateListing(session.user.id, id, {
           title: updateData.name,
           description: updateData.description,
+          brand: updateData.brand,
           price: updateData.price,
           quantity: updateData.quantity,
           condition: updateData.condition,
-          images: validatedData.images,
+          // eBay fetches images itself - it can't reach data: URLs, so
+          // rewrite uploaded images to our public /api/images/{id} route.
+          images: updatedProduct.images.map(toPublicImageUrl),
         });
       } catch (err) {
         ebayError = err instanceof Error ? err.message : "Failed to update eBay listing";
         console.error("[PRODUCT_PATCH] eBay update failed:", ebayError);
+      }
+    } else if (hadEbayListing) {
+      // eBay was previously selected but is now either unchecked or the
+      // product was converted back to a draft - end the live eBay listing
+      // instead of just deleting our local row and leaving it live/orphaned
+      // on eBay's side. ebayService.deleteListing is idempotent (safe to
+      // call even if nothing was ever actually published).
+      try {
+        await ebayService.deleteListing(session.user.id, id);
+      } catch (err) {
+        ebayError = err instanceof Error ? err.message : "Failed to end eBay listing";
+        console.error("[PRODUCT_PATCH] eBay delist failed:", ebayError);
       }
     }
 

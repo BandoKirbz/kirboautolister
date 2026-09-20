@@ -9,6 +9,22 @@ const nextConfig = {
     // only linting is decoupled from it here.
     ignoreDuringBuilds: true,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "picsum.photos",
+      },
+      {
+        protocol: "https",
+        hostname: "**.amazonaws.com",
+      },
+      {
+        protocol: "https",
+        hostname: "i.ebayimg.com",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

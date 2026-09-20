@@ -9,7 +9,9 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tunnel": "npx -y cloudflared tunnel --url http://localhost:3000",
+    "ebay:verify": "tsx scripts/verify-ebay-integration.ts"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
@@ -74,6 +76,7 @@
     "prettier": "^3.4.2",
     "prettier-plugin-tailwindcss": "^0.6.10",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

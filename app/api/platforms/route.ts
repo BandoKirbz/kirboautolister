@@ -3,46 +3,100 @@ import { z } from "zod";
 
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
+import { ebayDb } from "@/lib/ebay/db";
+import { PLATFORM_CATALOG } from "@/lib/platforms";
 
-// Platform connection schema
 const platformConnectionSchema = z.object({
   platformId: z.string(),
   credentials: z.record(z.string()),
 });
 
-// GET /api/platforms - Get user's platform connections
-export async function GET() {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const platforms = await db.platformconnection.findMany({
-      where: { userId: session.user.id },
-      select: {
-        platformId: true,
-        isEnabled: true,
-        platform: {
-          select: {
-            name: true,
-            logoUrl: true,
-          },
-        },
+async function ensurePlatformRows() {
+  for (const platform of PLATFORM_CATALOG) {
+    await db.platform.upsert({
+      where: { id: platform.id },
+      update: {
+        name: platform.name,
+        slug: platform.slug,
+        website: platform.website,
+      },
+      create: {
+        id: platform.id,
+        name: platform.name,
+        slug: platform.slug,
+        website: platform.website,
       },
     });
-
-    return NextResponse.json(platforms);
-  } catch (error) {
-    console.error("Error fetching platforms:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch platforms" },
-      { status: 500 }
-    );
   }
 }
 
-// POST /api/platforms - Connect a new platform
+/**
+ * GET /api/platforms
+ * Returns every known platform with an honest connection status for the
+ * current user. eBay is "connected" only when real OAuth credentials exist
+ * in ebaycredential — not just a platformconnection row.
+ */
+export async function GET() {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await ensurePlatformRows();
+
+    const [connections, ebayCredentials] = await Promise.all([
+      db.platformconnection.findMany({
+        where: { userId: session.user.id },
+        select: {
+          platformId: true,
+          isEnabled: true,
+          credentials: true,
+        },
+      }),
+      ebayDb.getCredentials(session.user.id),
+    ]);
+
+    const connectionById = new Map(connections.map((c) => [c.platformId, c]));
+
+    const platforms = PLATFORM_CATALOG.map((platform) => {
+      const connection = connectionById.get(platform.id);
+
+      if (platform.id === "ebay") {
+        const connected = !!ebayCredentials;
+        return {
+          id: platform.id,
+          name: platform.name,
+          logo: platform.logo,
+          availability: platform.availability,
+          connected,
+          enabled: connected && (connection?.isEnabled ?? true),
+          username: ebayCredentials?.ebayUsername ?? null,
+          sandbox: process.env.EBAY_SANDBOX === "true",
+        };
+      }
+
+      // Other platforms are not implemented yet — never claim "Connected".
+      return {
+        id: platform.id,
+        name: platform.name,
+        logo: platform.logo,
+        availability: platform.availability,
+        connected: false,
+        enabled: false,
+        username: null,
+        sandbox: false,
+      };
+    });
+
+    return NextResponse.json({ platforms });
+  } catch (error) {
+    console.error("Error fetching platforms:", error);
+    return NextResponse.json({ error: "Failed to fetch platforms" }, { status: 500 });
+  }
+}
+
+// POST /api/platforms - generic connect (not used for eBay OAuth)
 export async function POST(request: Request) {
   try {
     const session = await auth();
@@ -53,7 +107,21 @@ export async function POST(request: Request) {
     const json = await request.json();
     const { platformId, credentials } = platformConnectionSchema.parse(json);
 
-    // Check if connection already exists
+    if (platformId === "ebay") {
+      return NextResponse.json(
+        { error: "Use /api/platforms/ebay/auth to connect eBay" },
+        { status: 400 }
+      );
+    }
+
+    const definition = PLATFORM_CATALOG.find((p) => p.id === platformId);
+    if (!definition || definition.availability !== "available") {
+      return NextResponse.json(
+        { error: "This platform is not available yet" },
+        { status: 400 }
+      );
+    }
+
     const existingConnection = await db.platformconnection.findUnique({
       where: {
         userId_platformId: {
@@ -64,21 +132,16 @@ export async function POST(request: Request) {
     });
 
     if (existingConnection) {
-      return NextResponse.json(
-        { error: "Platform already connected" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Platform already connected" }, { status: 400 });
     }
 
-    // Validate and store credentials securely
-    // TODO: Implement platform-specific credential validation and encryption
-    const encryptedCredentials = JSON.stringify(credentials); // Replace with proper encryption
+    await ensurePlatformRows();
 
     const connection = await db.platformconnection.create({
       data: {
         userId: session.user.id,
         platformId,
-        credentials: encryptedCredentials,
+        credentials: JSON.stringify(credentials),
         isEnabled: true,
       },
       select: {
@@ -99,10 +162,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     console.error("Error connecting platform:", error);
-    return NextResponse.json(
-      { error: "Failed to connect platform" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to connect platform" }, { status: 500 });
   }
 }
 
@@ -116,7 +176,13 @@ export async function DELETE(request: Request) {
 
     const { platformId } = await request.json();
 
-    // Check if connection exists
+    if (platformId === "ebay") {
+      return NextResponse.json(
+        { error: "Use DELETE /api/platforms/ebay/auth to disconnect eBay" },
+        { status: 400 }
+      );
+    }
+
     const connection = await db.platformconnection.findUnique({
       where: {
         userId_platformId: {
@@ -127,13 +193,9 @@ export async function DELETE(request: Request) {
     });
 
     if (!connection) {
-      return NextResponse.json(
-        { error: "Platform connection not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Platform connection not found" }, { status: 404 });
     }
 
-    // Delete connection
     await db.platformconnection.delete({
       where: {
         userId_platformId: {
@@ -146,9 +208,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ message: "Platform disconnected successfully" });
   } catch (error) {
     console.error("Error disconnecting platform:", error);
-    return NextResponse.json(
-      { error: "Failed to disconnect platform" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to disconnect platform" }, { status: 500 });
   }
-} 
+}

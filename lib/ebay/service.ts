@@ -1,6 +1,6 @@
-import axios, { AxiosError, AxiosInstance } from "axios";
+import axios, { AxiosError } from "axios";
 import { EbayClient, validatedConfig } from "./client";
-import { EBAY_ENDPOINTS, getHeaders, EBAY_API_URL, EBAY_MARKETPLACE_ID } from "./config";
+import { EBAY_ENDPOINTS, getEbayIdentityUrl, EBAY_MARKETPLACE_ID } from "./config";
 import { ebayDb } from "./db";
 import {
   EbayAuthResponse,
@@ -8,22 +8,14 @@ import {
   EbayError,
   EbayListingInput,
 } from "./types";
-import { createEbayOAuthState, mapConditionToEbay } from "./utils";
+import { buildEbayAspects, createEbayOAuthState, mapConditionToEbay } from "./utils";
 import { db } from "../db";
 
 export class EbayService {
   private ebayClient: EbayClient;
-  private axiosInstance: AxiosInstance;
 
   constructor() {
     this.ebayClient = new EbayClient();
-    this.axiosInstance = axios.create({
-      baseURL: EBAY_API_URL,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-    });
   }
 
   async getStats(userId: string) {
@@ -184,25 +176,31 @@ export class EbayService {
     }
   }
 
-  private async getUserInfo(accessToken: string) {
+  /**
+   * Fetch the connected eBay user's username via the Commerce Identity
+   * API (REST/JSON). Requires the `commerce.identity.readonly` scope to
+   * have been granted during the OAuth flow. This replaces the legacy
+   * Trading API `GetUser` call, which doesn't return usable JSON when
+   * called with an OAuth bearer/IAF token.
+   */
+  private async getUserInfo(accessToken: string): Promise<{ username: string }> {
     try {
-      const response = await this.axiosInstance.get(`${EBAY_API_URL}/ws/api.dll`, {
-        params: {
-          callname: "GetUser",
-          responseencoding: "JSON",
-          siteid: "0",
-          version: "1199",
-        },
+      const response = await axios.get(getEbayIdentityUrl(), {
         headers: {
-          ...getHeaders(accessToken),
-          "X-EBAY-API-IAF-TOKEN": accessToken,
+          Authorization: `Bearer ${accessToken}`,
+          "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE_ID,
         },
       });
 
-      const data = response.data.User;
-      return {
-        username: data.UserID,
-      };
+      const username = response.data?.username;
+      if (!username) {
+        throw new Error(
+          "eBay Identity API returned no username. Make sure the " +
+            "commerce.identity.readonly scope was granted during OAuth."
+        );
+      }
+
+      return { username };
     } catch (error) {
       throw this.handleError(error, "Failed to get user information");
     }
@@ -262,6 +260,7 @@ export class EbayService {
           title: data.title,
           description: data.description,
           imageUrls: data.images,
+          aspects: buildEbayAspects(data.brand),
         },
         condition: mapConditionToEbay(data.condition),
         availability: {
@@ -269,10 +268,10 @@ export class EbayService {
         },
       });
 
-      const offerResult = await this.ebayClient.createOffer(userId, {
+      const offerBody = {
         sku,
         marketplaceId: EBAY_MARKETPLACE_ID,
-        format: "FIXED_PRICE",
+        format: "FIXED_PRICE" as const,
         availableQuantity: data.quantity,
         categoryId,
         listingDescription: data.description,
@@ -281,16 +280,37 @@ export class EbayService {
           price: { value: data.price.toFixed(2), currency: "USD" },
         },
         merchantLocationKey: location.merchantLocationKey,
-      });
+      };
 
-      const offerId = (offerResult as any).offerId;
+      // eBay only allows one unpublished/published offer per SKU per
+      // marketplace - creating a second one errors. If a retry (e.g. after
+      // fixing a category/condition issue) finds an existing offer for this
+      // SKU, update it in place instead of trying to create a duplicate.
+      let offerId: string | undefined;
+      const existingOffers = await this.ebayClient.getOffersForSku(userId, sku);
+      const existingOffer = existingOffers?.find(
+        (o: any) => o.marketplaceId === EBAY_MARKETPLACE_ID
+      );
+
+      if (existingOffer?.offerId) {
+        offerId = existingOffer.offerId;
+        await this.ebayClient.updateOffer(userId, existingOffer.offerId, offerBody);
+      } else {
+        const offerResult = await this.ebayClient.createOffer(userId, offerBody);
+        offerId = (offerResult as any).offerId;
+      }
+
       if (!offerId) {
         throw new Error("eBay did not return an offer id");
       }
 
       const ebayItemId = await this.ebayClient.publishOffer(userId, offerId);
 
-      await ebayDb.createListing(productId, {
+      // Upsert - a prior failed attempt may have already written an ERROR
+      // row for this product (e.g. from the API route's catch handler).
+      const existingListing = await ebayDb.getListing(productId);
+      const upsertListing = existingListing ? ebayDb.updateListing : ebayDb.createListing;
+      await upsertListing(productId, {
         status: "ACTIVE",
         ebayItemId,
         categoryId,
@@ -339,7 +359,14 @@ export class EbayService {
       const offers = await this.ebayClient.getOffersForSku(userId, sku);
       const offerId = offers[0]?.offerId || (existing.specificsList as any)?.offerId;
 
-      if (data.title || data.description || data.images || data.quantity != null || data.condition) {
+      if (
+        data.title ||
+        data.description ||
+        data.images ||
+        data.quantity != null ||
+        data.condition ||
+        data.brand
+      ) {
         await this.ebayClient.updateInventoryItem(userId, {
           sku,
           locale: "en_US",
@@ -347,6 +374,7 @@ export class EbayService {
             title: data.title || "",
             description: data.description || "",
             imageUrls: data.images,
+            aspects: buildEbayAspects(data.brand),
           },
           condition: mapConditionToEbay(data.condition || "good"),
           availability: {

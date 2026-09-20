@@ -4,11 +4,13 @@ import { z } from "zod";
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
 import { ebayService } from "@/lib/ebay/service";
+import { toPublicImageUrl } from "@/lib/ebay/utils";
 
 // Product validation schema
 const productSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
+  brand: z.string().optional(),
   condition: z.enum(["new-with-tags", "new-without-tags", "very-good", "good", "fair"]).optional(),
   price: z.number().optional(),
   quantity: z.number().int().optional(),
@@ -155,6 +157,7 @@ export async function POST(req: Request) {
           userId: session.user.id,
           name: validatedData.title || "Untitled Draft",
           description: validatedData.description || "",
+          brand: validatedData.brand || null,
           condition: validatedData.condition || "good",
           quantity: validatedData.quantity || 1,
           price: validatedData.price || 0,
@@ -162,6 +165,7 @@ export async function POST(req: Request) {
             create: validatedData.images.map((url: string) => ({ url }))
           },
         },
+        include: { images: true },
       });
 
       // Ensure platforms exist
@@ -208,10 +212,13 @@ export async function POST(req: Request) {
           await ebayService.createListing(session.user.id, product.id, {
             title: validatedData.title || "Untitled Draft",
             description: validatedData.description || "",
+            brand: validatedData.brand,
             price: validatedData.price || 0,
             quantity: validatedData.quantity || 1,
             condition: validatedData.condition || "good",
-            images: validatedData.images,
+            // eBay fetches images itself - it can't reach data: URLs, so
+            // rewrite uploaded images to our public /api/images/{id} route.
+            images: product.images.map(toPublicImageUrl),
           });
         } catch (err) {
           ebayError = err instanceof Error ? err.message : "Failed to publish to eBay";

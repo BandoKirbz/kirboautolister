@@ -5,6 +5,26 @@ import { z } from "zod";
 import { ebayDb } from "@/lib/ebay/db";
 import { verifyEbaySignature } from "@/lib/ebay/utils";
 
+/**
+ * NOT WIRED UP TO REAL EBAY TRAFFIC YET.
+ *
+ * This route assumes a simplified/invented notification envelope
+ * (`{ notificationType, itemId, ... }`) that does not match eBay's actual
+ * Notification API payload shape (topic-based envelope:
+ * `{ metadata: { topic }, notification: { notificationId, eventDate, data } }`,
+ * see https://developer.ebay.com/api-docs/commerce/notification/overview.html).
+ * Nothing in this codebase also calls eBay's Notification API to actually
+ * subscribe this app to any topic (`POST /commerce/notification/v1/subscription`),
+ * so eBay has no reason to ever send a request here - as-is this endpoint
+ * is dead code, not a security hole, but it also means order/sale/revision
+ * events are NOT currently synced from eBay. Before relying on this for
+ * production: (1) subscribe to the real topics you need (e.g. via the
+ * Notification API or by polling the Fulfillment API for orders instead),
+ * (2) rebuild the schemas below to match eBay's actual envelope for each
+ * topic, (3) verify `x-ebay-signature` against eBay's published public key
+ * (fetched by `kid`), not just an HMAC of a shared secret.
+ */
+
 // Notification payload schemas
 const baseNotificationSchema = z.object({
   notificationType: z.enum([

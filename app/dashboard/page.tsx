@@ -9,6 +9,9 @@ import { PlatformStatus } from "@/components/dashboard/platform-status";
 import { ProductGrid } from "@/components/dashboard/product-grid";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
+import { getEbayItemUrl } from "@/lib/ebay/config";
+import { ebayDb } from "@/lib/ebay/db";
+import { PLATFORM_CATALOG } from "@/lib/platforms";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -22,7 +25,7 @@ export default async function DashboardPage() {
   }
 
   // Fetch initial data
-  const [products, platforms, listings] = await Promise.all([
+  const [products, ebayCredentials, listings] = await Promise.all([
     db.product.findMany({
       where: { userId: session.user.id },
       include: {
@@ -33,10 +36,7 @@ export default async function DashboardPage() {
       },
       orderBy: { createdAt: "desc" },
     }),
-    db.platformconnection.findMany({
-      where: { userId: session.user.id },
-      include: { platform: true },
-    }),
+    ebayDb.getCredentials(session.user.id),
     db.listing.findMany({
       where: { userId: session.user.id },
       include: { platform: true },
@@ -45,11 +45,38 @@ export default async function DashboardPage() {
     }),
   ]);
 
+  // Attach the real, publicly-viewable listing URL for any listing that's
+  // actually live on its platform, so the UI can link out to it directly
+  // instead of just showing a status badge.
+  const productsWithListingUrls = products.map((product) => ({
+    ...product,
+    listings: product.listings.map((listing) => ({
+      ...listing,
+      listingUrl:
+        listing.platformId === "ebay" && listing.platformListingId
+          ? getEbayItemUrl(listing.platformListingId)
+          : null,
+    })),
+  }));
+
+  // Honest platform status: eBay is connected only with real OAuth tokens;
+  // other platforms are "coming soon" until implemented.
+  const platformStatus = PLATFORM_CATALOG.map((platform) => ({
+    id: platform.id,
+    name: platform.name,
+    logo: platform.logo,
+    availability: platform.availability,
+    connected: platform.id === "ebay" ? !!ebayCredentials : false,
+    username: platform.id === "ebay" ? ebayCredentials?.ebayUsername ?? null : null,
+  }));
+
+  const connectedCount = platformStatus.filter((p) => p.connected).length;
+
   // Calculate analytics
   const analytics = {
     totalProducts: products.length,
     activeListings: products.filter((p) => p.listings.some((l) => l.status === "ACTIVE")).length,
-    totalPlatforms: platforms.length,
+    totalPlatforms: connectedCount,
     averagePrice: products.length
       ? (products.reduce((sum, p) => sum + p.price, 0) / products.length).toFixed(2)
       : "0.00",
@@ -74,13 +101,13 @@ export default async function DashboardPage() {
               <CardDescription>Manage and track all your product listings</CardDescription>
             </CardHeader>
             <CardContent>
-              <ProductGrid initialProducts={products as any} />
+              <ProductGrid initialProducts={productsWithListingUrls as any} />
             </CardContent>
           </Card>
         </div>
 
         <div className="space-y-6">
-          <PlatformStatus platforms={platforms} />
+          <PlatformStatus platforms={platformStatus} />
           <ActivityFeed listings={listings} />
         </div>
       </div>

@@ -53,6 +53,7 @@ export interface EbayError {
   domain: string;
   category: string;
   message: string;
+  longMessage?: string;
   parameters?: { name: string; value: string }[];
 }
 
@@ -160,6 +161,9 @@ export interface EbayListingInput {
   condition: string;
   images: string[];
   categoryId?: string;
+  /** Sent to eBay as the "Brand" item specific (aspects.Brand). Most real
+   *  (non-fallback) categories require Brand as a mandatory aspect. */
+  brand?: string;
 }
 
 export interface EbayBusinessPolicies {

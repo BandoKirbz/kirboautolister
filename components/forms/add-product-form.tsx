@@ -33,6 +33,11 @@ const productFormSchema = z.object({
   images: z.array(z.string()).min(1, "At least one image is required"),
   title: z.string().min(3, "Title must be at least 3 characters"),
   description: z.string().min(10, "Description must be at least 10 characters"),
+  // Optional, but Brand is the single most common required "item specific"
+  // on real eBay categories - sending it (as an aspect) is often the
+  // difference between a listing publishing and getting rejected outside
+  // of aspect-free fallback categories.
+  brand: z.string().optional(),
   condition: z.enum(["new-with-tags", "new-without-tags", "very-good", "good", "fair"]),
   price: z.number().min(0.01, "Price must be greater than 0"),
   quantity: z.number().int().min(1, "Quantity must be at least 1"),
@@ -41,12 +46,14 @@ const productFormSchema = z.object({
 
 type ProductFormValues = z.infer<typeof productFormSchema>;
 
-const platforms = [
-  { id: "ebay", name: "eBay", logo: "📦" },
-  { id: "grailed", name: "Grailed", logo: "👕" },
-  { id: "depop", name: "Depop", logo: "🛍️" },
-  { id: "offerup", name: "OfferUp", logo: "🏷️" },
-];
+type PlatformConnectionStatus = {
+  id: string;
+  name: string;
+  logo: string;
+  availability: "available" | "coming_soon";
+  connected: boolean;
+  username?: string | null;
+};
 
 const conditions = [
   { value: "new-with-tags", label: "New with tags" },
@@ -59,6 +66,7 @@ const conditions = [
 export default function AddProductForm() {
   const [step, setStep] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
+  const [platformStatuses, setPlatformStatuses] = useState<PlatformConnectionStatus[]>([]);
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,12 +78,33 @@ export default function AddProductForm() {
       images: [],
       title: "",
       description: "",
+      brand: "",
       condition: "new-with-tags",
       price: 0,
       quantity: 1,
       platforms: [],
     },
   });
+
+  // Load real platform connection status (never hardcode "Connected")
+  useEffect(() => {
+    async function loadPlatforms() {
+      try {
+        const response = await fetch("/api/platforms");
+        if (!response.ok) throw new Error("Failed to load platforms");
+        const data = await response.json();
+        setPlatformStatuses(data.platforms || []);
+      } catch (error) {
+        console.error("Failed to load platform status:", error);
+        toast({
+          title: "Warning",
+          description: "Could not load platform connection status",
+          variant: "destructive",
+        });
+      }
+    }
+    loadPlatforms();
+  }, [toast]);
 
   // Load existing product data if editing
   useEffect(() => {
@@ -98,6 +127,7 @@ export default function AddProductForm() {
           images: product.images.map((img: { url: string }) => img.url),
           title: product.name,
           description: product.description,
+          brand: product.brand || "",
           condition: product.condition,
           price: price,
           quantity: product.quantity,
@@ -267,16 +297,27 @@ export default function AddProductForm() {
         throw new Error(errorMessage);
       }
 
-      toast({
-        title: "Success",
-        description: isDraft
-          ? editId
-            ? "Draft updated successfully"
-            : "Draft saved successfully"
-          : editId
-            ? "Product updated successfully"
-            : "Product created successfully",
-      });
+      // The API returns 200 even when the product itself saved fine but
+      // publishing/syncing to a platform (e.g. eBay) failed - that failure
+      // was previously silent to the user. Surface it explicitly.
+      if (result.warning) {
+        toast({
+          title: "Saved with a warning",
+          description: result.warning,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: isDraft
+            ? editId
+              ? "Draft updated successfully"
+              : "Draft saved successfully"
+            : editId
+              ? "Product updated successfully"
+              : "Product created successfully",
+        });
+      }
       router.push("/dashboard");
     } catch (error) {
       console.error(error);
@@ -448,6 +489,20 @@ export default function AddProductForm() {
 
               <FormField
                 control={form.control}
+                name="brand"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Brand (optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g., Levi's, Nike, Apple" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="condition"
                 render={({ field }) => (
                   <FormItem>
@@ -534,41 +589,79 @@ export default function AddProductForm() {
                 render={() => (
                   <FormItem>
                     <div className="space-y-4">
-                      {platforms.map((platform) => (
-                        <div
-                          key={platform.id}
-                          className="flex items-center space-x-4 rounded-lg border p-4 hover:border-blue-500"
-                        >
-                          <FormField
-                            control={form.control}
-                            name="platforms"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(platform.id)}
-                                    onCheckedChange={(checked) => {
-                                      const current = field.value || [];
-                                      const updated = checked
-                                        ? [...current, platform.id]
-                                        : current.filter((id) => id !== platform.id);
-                                      field.onChange(updated);
-                                    }}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <div className="flex-1">
-                            <Label className="cursor-pointer text-base">
-                              <span className="mr-2">{platform.logo}</span>
-                              {platform.name}
-                            </Label>
+                      {platformStatuses.map((platform) => {
+                        const canSelect =
+                          platform.availability === "available" && platform.connected;
+                        const statusLabel =
+                          platform.availability === "coming_soon"
+                            ? "Coming soon"
+                            : platform.connected
+                              ? platform.username
+                                ? `Connected as ${platform.username}`
+                                : "Connected"
+                              : "Not connected";
+
+                        return (
+                          <div
+                            key={platform.id}
+                            className={`flex items-center space-x-4 rounded-lg border p-4 ${
+                              canSelect
+                                ? "hover:border-blue-500"
+                                : "opacity-60"
+                            }`}
+                          >
+                            <FormField
+                              control={form.control}
+                              name="platforms"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(platform.id)}
+                                      disabled={!canSelect}
+                                      onCheckedChange={(checked) => {
+                                        if (!canSelect) return;
+                                        const current = field.value || [];
+                                        const updated = checked
+                                          ? [...current, platform.id]
+                                          : current.filter((id) => id !== platform.id);
+                                        field.onChange(updated);
+                                      }}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <div className="flex-1">
+                              <Label className="cursor-pointer text-base">
+                                <span className="mr-2">{platform.logo}</span>
+                                {platform.name}
+                              </Label>
+                            </div>
+                            <span
+                              className={`text-sm ${
+                                canSelect
+                                  ? "text-green-600"
+                                  : platform.availability === "coming_soon"
+                                    ? "text-slate-500"
+                                    : "text-amber-600"
+                              }`}
+                            >
+                              {statusLabel}
+                            </span>
                           </div>
-                          <span className="text-sm text-gray-500">Connected</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
+                    {!platformStatuses.some((p) => p.connected) && (
+                      <p className="mt-3 text-sm text-amber-700">
+                        No platforms connected yet. Go to{" "}
+                        <a href="/dashboard/platforms" className="underline">
+                          Platforms
+                        </a>{" "}
+                        and connect eBay first.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -695,14 +788,23 @@ export default function AddProductForm() {
                 Back
               </Button>
 
-              <Button type="button" variant="outline" onClick={handleSaveAsDraft}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSaveAsDraft}
+                disabled={isUploading}
+              >
                 Save as Draft
               </Button>
             </div>
 
-            <Button type="button" onClick={handleNext}>
-              {step === 3 ? "Create Listing" : "Continue"}
-              {step !== 3 && <ArrowRight className="ml-2 h-4 w-4" />}
+            <Button type="button" onClick={handleNext} disabled={isUploading}>
+              {isUploading
+                ? "Saving..."
+                : step === 3
+                  ? "Create Listing"
+                  : "Continue"}
+              {!isUploading && step !== 3 && <ArrowRight className="ml-2 h-4 w-4" />}
             </Button>
           </CardFooter>
         </Card>

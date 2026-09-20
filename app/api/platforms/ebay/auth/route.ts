@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/app/auth";
 import { ebayService } from "@/lib/ebay/service";
+import { getEbayEnv, isEbayConfigured } from "@/lib/ebay/env";
 
 // GET /api/platforms/ebay/auth - Get eBay OAuth URL for the current user.
-// The user id is signed into the returned URL's `state` param and verified
-// again in /api/ebay/callback, so the flow works even if the eBay redirect
-// doesn't carry the app's session cookie back with it.
 export async function GET() {
   try {
     const session = await auth();
@@ -13,12 +11,31 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    if (!isEbayConfigured()) {
+      try {
+        getEbayEnv();
+      } catch (err) {
+        return NextResponse.json(
+          {
+            error: err instanceof Error ? err.message : "eBay is not configured",
+            configured: false,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const authUrl = await ebayService.getAuthUrl(session.user.id);
-    return NextResponse.json({ url: authUrl });
+    return NextResponse.json({ url: authUrl, configured: true });
   } catch (error) {
     console.error("[eBay Auth] Failed to get auth URL:", error);
     return NextResponse.json(
-      { error: "Failed to get eBay authorization URL" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to get eBay authorization URL",
+      },
       { status: 500 }
     );
   }

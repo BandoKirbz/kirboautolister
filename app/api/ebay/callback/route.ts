@@ -2,8 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { ebayService } from "@/lib/ebay/service";
 import { verifyEbayOAuthState } from "@/lib/ebay/utils";
 
+/**
+ * After eBay hits our HTTPS callback (often a tunnel URL), send the user
+ * back to the app origin they actually use day-to-day (usually
+ * http://localhost:3000) so their session cookie still applies.
+ */
+function appOrigin(request: NextRequest): string {
+  return (
+    process.env.APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    request.nextUrl.origin
+  ).replace(/\/$/, "");
+}
+
 function redirectTo(request: NextRequest, path: string) {
-  return NextResponse.redirect(new URL(path, request.nextUrl.origin));
+  return NextResponse.redirect(new URL(path, appOrigin(request)));
 }
 
 // GET /api/ebay/callback - eBay redirects here after the user

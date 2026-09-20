@@ -4,23 +4,99 @@ import crypto from "crypto";
  * Map our internal, free-form condition strings to eBay's Inventory API
  * ConditionEnum values. See:
  * https://developer.ebay.com/api-docs/sell/inventory/types/slr:ConditionEnum
+ *
+ * IMPORTANT: which of these enum values eBay actually *accepts* is
+ * category-specific, and only the values a category's own condition
+ * policy lists are allowed at publish time - sending any other value
+ * fails the whole listing with "The provided condition id is invalid for
+ * the selected primary category id (25021)", not just a display glitch.
+ * EBAY_DEFAULT_CATEGORY_ID (175687, "Cell Phone Accessories") only
+ * accepts NEW, NEW_OTHER, USED_EXCELLENT, and FOR_PARTS_OR_NOT_WORKING
+ * (verified via live sandbox publish attempts - it rejects the more
+ * granular USED_VERY_GOOD/USED_GOOD/USED_ACCEPTABLE that finer-grained
+ * categories like Books/Media support) - so every "used" tier below
+ * collapses to USED_EXCELLENT for now, which still just displays as a
+ * generic "Used" on the listing (this category doesn't expose finer used
+ * grades anyway). If EBAY_DEFAULT_CATEGORY_ID ever changes to a category
+ * with a richer condition policy, re-verify with `npm run ebay:verify`
+ * and widen this map back out.
  */
 const CONDITION_MAP: Record<string, string> = {
   "new-with-tags": "NEW",
   "new-without-tags": "NEW_OTHER",
-  "very-good": "USED_VERY_GOOD",
-  good: "USED_GOOD",
-  fair: "USED_ACCEPTABLE",
+  "very-good": "USED_EXCELLENT",
+  good: "USED_EXCELLENT",
+  fair: "USED_EXCELLENT",
   // Also accept eBay's own enum values / common aliases directly, in case
   // callers already pass a normalized value.
   NEW: "NEW",
   LIKE_NEW: "USED_EXCELLENT",
-  GOOD: "USED_GOOD",
-  ACCEPTABLE: "USED_ACCEPTABLE",
+  GOOD: "USED_EXCELLENT",
+  ACCEPTABLE: "USED_EXCELLENT",
 };
 
 export function mapConditionToEbay(condition: string): string {
-  return CONDITION_MAP[condition] || "USED_GOOD";
+  return CONDITION_MAP[condition] || "USED_EXCELLENT";
+}
+
+/**
+ * Build the `aspects` object sent as part of `product` on inventory item
+ * create/update calls.
+ *
+ * `Brand` and `MPN` are the two most commonly *required* item specifics
+ * across eBay's real (non-fallback) categories, including
+ * EBAY_DEFAULT_CATEGORY_ID's current value (175687, "Cell Phone
+ * Accessories > Cases, Covers & Skins") - which is also one of the few
+ * leaf categories that both supports/displays `condition` AND only
+ * requires these two aspects (verified against
+ * get_item_aspects_for_category - see docs/ebay-api-reference.md).
+ *
+ * We always send both so publishing doesn't depend on the seller having
+ * filled in optional form fields: "Does Not Apply" is eBay's own
+ * documented convention for MPN when a real part number doesn't exist
+ * (https://www.ebay.com/help/selling/listings/creating-managing-listings/writing-listing?id=4102),
+ * and "Unbranded" is one of this category's own suggested Brand values.
+ * Sending these aspects to categories that don't require them is
+ * harmless - eBay ignores aspects a category doesn't recognize.
+ */
+export function buildEbayAspects(brand?: string): Record<string, string[]> {
+  return {
+    Brand: [brand?.trim() || "Unbranded"],
+    MPN: ["Does Not Apply"],
+  };
+}
+
+/**
+ * The public, HTTPS-reachable origin of this app, from eBay's point of
+ * view. eBay's servers fetch listing images directly, so localhost URLs
+ * never work - we need whatever public origin they can already reach us
+ * on (the same one used for the OAuth redirect), or an explicit override.
+ */
+export function getPublicBaseUrl(): string {
+  const explicit = process.env.PUBLIC_APP_URL;
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  const redirectUri = process.env.EBAY_REDIRECT_URI;
+  if (redirectUri) {
+    try {
+      return new URL(redirectUri).origin;
+    } catch {
+      // fall through
+    }
+  }
+
+  return (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+}
+
+/**
+ * Uploaded product images are stored as base64 `data:` URLs (no external
+ * image host exists yet) - eBay can't fetch those directly. Rewrite them
+ * to point at our own public `/api/images/{id}` route, which decodes and
+ * serves the bytes. Already-public http(s) URLs pass through unchanged.
+ */
+export function toPublicImageUrl(image: { id: string; url: string }): string {
+  if (!image.url.startsWith("data:")) return image.url;
+  return `${getPublicBaseUrl()}/api/images/${image.id}`;
 }
 
 /**
