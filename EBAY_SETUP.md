@@ -5,7 +5,8 @@
 > page, plus every non-obvious behavior we've had to discover by testing
 > (wrong HTTP method, missing required header, silently-dropped fields,
 > etc.). Check there first when something eBay-related breaks, and run
-> `npm run ebay:verify` for a live health check against Sandbox/Production.
+> `npm run integrations:verify` (or `npm run ebay:verify`) for a live
+> health check against Sandbox/Production.
 
 ## 1. Rotate your eBay sandbox credentials
 
@@ -156,11 +157,9 @@ App ID / Cert ID / RuName - you cannot "promote" sandbox credentials.
    - In the Developer Portal's "Alerts and Notifications" tab, enter that
      same URL and token - eBay immediately sends a verification GET
      request; this route already handles it.
-   - Before fully relying on it, add signature verification of eBay's
-     `x-ebay-signature` header (fetch their public key by `kid`) - see the
-     comment at the top of that route for details. Without it, the POST
-     handler still works, it just trusts the payload's shape rather than
-     cryptographically verifying it came from eBay.
+   - POST requests are rejected with 412 unless `x-ebay-signature` verifies
+     (`lib/ebay/notification-signature.ts` fetches eBay's public key by `kid`).
+     Send a test notification from the Developer Portal before go-live.
 5. **Per-product eBay category + item specifics ("aspects").** This is
    still the biggest functional gap for production. Today every listing
    uses a single hardcoded `EBAY_DEFAULT_CATEGORY_ID` (`175687`, "Cell

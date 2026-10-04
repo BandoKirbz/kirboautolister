@@ -146,75 +146,71 @@ export default function AddProductForm() {
     loadProduct();
   }, [editId, form, toast]);
 
+  // Prefer a presigned S3 upload. If S3 is not configured, keep the image
+  // as a data URL so the product can still be saved and eBay can fetch it
+  // through /api/images/{id} once PUBLIC_APP_URL is a public HTTPS origin.
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
+
+  const uploadFileToS3 = async (file: File): Promise<string> => {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Not an image file");
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error("File too large (max 5MB)");
+    }
+
+    const presignRes = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileType: file.type, fileSize: file.size }),
+    });
+    const presignResult = await presignRes.json();
+    if (!presignRes.ok) {
+      const message = typeof presignResult.error === "string" ? presignResult.error : "";
+      if (/aren['’]t configured|not configured|AWS_/i.test(message)) {
+        return readFileAsDataUrl(file);
+      }
+      throw new Error(message || "Failed to get upload URL");
+    }
+    const { uploadUrl, url } = presignResult as { uploadUrl: string; url: string };
+
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!putRes.ok) {
+      throw new Error("Failed to upload to storage");
+    }
+
+    return url;
+  };
+
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       setIsUploading(true);
-      const failedUploads: string[] = [];
 
       try {
-        const imagePromises = acceptedFiles.map(
-          (file) =>
-            new Promise<{ success: boolean; result: string; fileName: string }>((resolve) => {
-              // Validate file type
-              if (!file.type.startsWith("image/")) {
-                resolve({ success: false, result: "Not an image file", fileName: file.name });
-                return;
-              }
-
-              // Validate file size (5MB)
-              if (file.size > 5 * 1024 * 1024) {
-                resolve({
-                  success: false,
-                  result: "File too large (max 5MB)",
-                  fileName: file.name,
-                });
-                return;
-              }
-
-              // Create object URL first as a fallback
-              const objectUrl = URL.createObjectURL(file);
-
-              const reader = new FileReader();
-
-              reader.onload = (e) => {
-                try {
-                  // If FileReader succeeds, use its result
-                  const result = e.target?.result as string;
-                  if (result) {
-                    URL.revokeObjectURL(objectUrl); // Clean up object URL
-                    resolve({ success: true, result, fileName: file.name });
-                  } else {
-                    resolve({ success: false, result: objectUrl, fileName: file.name });
-                  }
-                } catch (error) {
-                  resolve({ success: false, result: "Failed to read file", fileName: file.name });
-                }
+        const results = await Promise.all(
+          acceptedFiles.map(async (file) => {
+            try {
+              const url = await uploadFileToS3(file);
+              return { success: true as const, result: url, fileName: file.name };
+            } catch (error) {
+              return {
+                success: false as const,
+                result: error instanceof Error ? error.message : "Upload failed",
+                fileName: file.name,
               };
-
-              reader.onerror = () => {
-                resolve({ success: false, result: "Failed to read file", fileName: file.name });
-              };
-
-              // Add timeout for Safari
-              const timeout = setTimeout(() => {
-                reader.abort();
-                resolve({ success: false, result: "Upload timeout", fileName: file.name });
-              }, 5000);
-
-              reader.onloadend = () => {
-                clearTimeout(timeout);
-              };
-
-              // Start reading the file
-              try {
-                reader.readAsDataURL(file);
-              } catch (error) {
-                resolve({ success: false, result: "Failed to read file", fileName: file.name });
-              }
-            })
+            }
+          })
         );
-
-        const results = await Promise.all(imagePromises);
 
         // Separate successful and failed uploads
         const successfulUploads = results.filter((r) => r.success).map((r) => r.result);
@@ -253,18 +249,6 @@ export default function AddProductForm() {
     },
     [form, toast]
   );
-
-  // Add cleanup function for object URLs
-  React.useEffect(() => {
-    return () => {
-      // Clean up object URLs when component unmounts
-      form.getValues("images").forEach((image) => {
-        if (image.startsWith("blob:")) {
-          URL.revokeObjectURL(image);
-        }
-      });
-    };
-  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -424,6 +408,23 @@ export default function AddProductForm() {
                                       .getValues("images")
                                       .filter((_, i) => i !== index);
                                     form.setValue("images", images);
+
+                                    // Best-effort cleanup: this image was
+                                    // never attached to a saved product, so
+                                    // nothing else will ever reference (or
+                                    // delete) it - remove it from S3 now
+                                    // instead of leaving it there forever.
+                                    // Not awaited/blocking; failures are
+                                    // logged server-side and don't affect
+                                    // the form.
+                                    fetch("/api/upload", {
+                                      method: "DELETE",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ url: image }),
+                                    }).catch(() => {
+                                      // Ignore - orphaned uploads aren't
+                                      // worth failing the UI over.
+                                    });
                                   }}
                                   className="absolute right-2 top-2 rounded-full bg-white p-1 shadow-lg hover:bg-gray-100"
                                 >
@@ -668,10 +669,12 @@ export default function AddProductForm() {
               />
 
               <div className="mt-6 rounded-lg bg-blue-50 p-4">
-                <h4 className="font-medium text-blue-900">Platform-specific optimizations</h4>
+                <h4 className="font-medium text-blue-900">eBay listing details</h4>
                 <p className="mt-1 text-sm text-blue-700">
-                  We'll automatically optimize your listing for each platform, including title
-                  format, description layout, and image requirements.
+                  eBay listings currently publish into one default category (phone-case
+                  accessories) with Brand and MPN filled in automatically. That is enough to go
+                  live, and it is the wrong category for most real inventory — pick a real
+                  category per product before treating this as a general catalog.
                 </p>
               </div>
             </CardContent>

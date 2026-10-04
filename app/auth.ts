@@ -53,20 +53,16 @@ export const authOptions: NextAuthConfig = {
       },
       async authorize(credentials) {
         if (!credentials) {
-          console.log("Auth attempt - received credentials: no");
           return null;
         }
 
-        console.log("Auth attempt - received credentials: yes");
         const parsedCredentials = credentialsSchema.safeParse(credentials);
 
         if (!parsedCredentials.success) {
-          console.log("Invalid credentials format");
           return null;
         }
 
         const { identifier, password } = parsedCredentials.data;
-        console.log("Looking up user with identifier:", identifier);
 
         const user = await prisma.user.findFirst({
           where: {
@@ -78,13 +74,11 @@ export const authOptions: NextAuthConfig = {
         });
 
         if (!user || !user.password) {
-          console.log("No user found");
           return null;
         }
 
         const passwordsMatch = await bcrypt.compare(password, user.password);
         if (!passwordsMatch) {
-          console.log("Passwords do not match");
           return null;
         }
 

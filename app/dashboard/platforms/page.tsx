@@ -40,7 +40,7 @@ export default function PlatformsPage() {
           <CardTitle>Platform Connections</CardTitle>
           <CardDescription>
             Connect selling platforms so listings you create here can be published elsewhere.
-            Start by connecting eBay (sandbox).
+            eBay is the live marketplace. Grailed, Depop, and OfferUp are not available yet.
           </CardDescription>
         </CardHeader>
       </Card>

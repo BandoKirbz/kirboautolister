@@ -102,13 +102,6 @@ export class EbayClient {
   private ensureReady() {
     if (this.axiosInstance && this.authClient) return;
     const config = loadValidatedConfig();
-    console.log("Initializing eBay client with config:", {
-      appId: config.appId,
-      certId: "HIDDEN",
-      ruName: config.ruName,
-      sandbox: config.sandbox,
-      scopes: config.scopes,
-    });
 
     this.axiosInstance = axios.create({
       baseURL: getEbayEnv().apiUrl,
@@ -122,11 +115,6 @@ export class EbayClient {
       clientSecret: config.certId,
       redirectUri: config.ruName,
       env: config.sandbox ? "SANDBOX" : "PRODUCTION",
-    });
-
-    this.axiosInstance.interceptors.request.use((req) => {
-      console.log("Request:", req.method?.toUpperCase(), req.url);
-      return req;
     });
 
     this.axiosInstance.interceptors.response.use(

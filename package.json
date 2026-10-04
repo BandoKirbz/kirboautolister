@@ -11,7 +11,8 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "tunnel": "npx -y cloudflared tunnel --url http://localhost:3000",
-    "ebay:verify": "tsx scripts/verify-ebay-integration.ts"
+    "ebay:verify": "tsx scripts/verify-ebay-integration.ts",
+    "integrations:verify": "tsx scripts/verify-integrations.ts"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",

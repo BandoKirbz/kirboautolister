@@ -121,10 +121,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    console.log("Full session:", session);
-    
+
     if (!session?.user?.id) {
-      console.error("Missing user ID in session:", session);
       return NextResponse.json({ error: "Invalid session - missing user ID" }, { status: 401 });
     }
 
@@ -133,25 +131,21 @@ export async function POST(req: Request) {
     try {
       const validatedData = productSchema.parse(body);
       
-      // Get or create user
-      let user = await db.user.findUnique({
-        where: { id: session.user.id }
+      const user = await db.user.findUnique({
+        where: { id: session.user.id },
       });
 
       if (!user) {
-        console.log("Creating new user:", session.user);
-        user = await db.user.create({
+        await db.user.create({
           data: {
             id: session.user.id,
-            name: session.user.name || '',
-            email: session.user.email || '',
-            username: session.user.username || '',
-          }
+            name: session.user.name || "",
+            email: session.user.email || "",
+            username: session.user.username || "",
+          },
         });
       }
 
-      console.log("Using user:", user.id);
-      
       const product = await db.product.create({
         data: {
           userId: session.user.id,

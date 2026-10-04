@@ -9,7 +9,8 @@ declare module 'ebay-oauth-nodejs-client' {
 
     generateUserAuthorizationUrl(environment: string, scopes: string[]): string;
     exchangeCodeForAccessToken(environment: string, code: string): Promise<string>;
-    getAccessToken(environment: string, refreshToken: string): Promise<string>;
+    getApplicationToken(environment: string, scopes?: string | string[]): Promise<string>;
+    getAccessToken(environment: string, refreshToken: string, scopes?: string | string[]): Promise<string>;
   }
 
   export default EbayAuthToken;

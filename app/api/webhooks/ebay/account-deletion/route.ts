@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ebayDb } from "@/lib/ebay/db";
+import { verifyEbayNotificationSignature } from "@/lib/ebay/notification-signature";
 import { db } from "@/lib/db";
 
 /**
@@ -29,13 +30,10 @@ import { db } from "@/lib/db";
  *
  * Docs: https://developer.ebay.com/marketplace-account-deletion
  *
- * NOTE on the POST handler below: it validates the notification shape
- * and deletes the matching local eBay connection, but does not verify
- * eBay's `x-ebay-signature` message signature (which requires fetching
- * eBay's public key by `kid` and verifying an EC signature) - that step
- * should be added and tested against eBay's "Send Test Notification"
- * tool in the Developer Portal before relying on this in production, so
- * an attacker can't spoof deletion notifications for arbitrary accounts.
+ * The POST handler verifies `x-ebay-signature` (ECDSA over the raw body,
+ * public key fetched by `kid`) before deleting anything. Invalid signatures
+ * return 412. A verified payload with an unexpected shape still returns 200
+ * so eBay does not retry a message we cannot act on.
  */
 
 function getVerificationToken(): string {
@@ -103,12 +101,28 @@ const accountDeletionSchema = z.object({
 
 // POST /api/webhooks/ebay/account-deletion - actual deletion notification.
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text();
+  const signature = request.headers.get("x-ebay-signature");
+  if (!signature) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 412 });
+  }
+
   try {
-    const body = await request.json();
+    const valid = await verifyEbayNotificationSignature(rawBody, signature);
+    if (!valid) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 412 });
+    }
+  } catch (err) {
+    console.error("[eBay Account Deletion] Could not verify signature:", err);
+    return NextResponse.json({ error: "Could not verify signature" }, { status: 500 });
+  }
+
+  try {
+    const body = JSON.parse(rawBody);
     const parsed = accountDeletionSchema.safeParse(body);
 
     if (!parsed.success) {
-      console.error("[eBay Account Deletion] Unexpected payload shape:", body);
+      console.error("[eBay Account Deletion] Unexpected payload shape");
       // Still 200 - eBay retries on non-2xx, and a shape mismatch on our
       // side isn't something retrying will fix.
       return NextResponse.json({ success: true });

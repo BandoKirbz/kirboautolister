@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/app/auth";
+import { DisconnectedEbayListingsBanner } from "@/components/dashboard/disconnected-ebay-listings-banner";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { AnalyticsCards } from "@/components/dashboard/analytics-cards";
 import { PlatformOverview } from "@/components/dashboard/platform-overview";
@@ -70,6 +71,9 @@ export default async function DashboardPage() {
     username: platform.id === "ebay" ? ebayCredentials?.ebayUsername ?? null : null,
   }));
 
+  const showDisconnectedBanner =
+    !ebayCredentials && listings.some((listing) => listing.platformId === "ebay");
+
   const connectedCount = platformStatus.filter((p) => p.connected).length;
 
   // Calculate analytics
@@ -90,6 +94,8 @@ export default async function DashboardPage() {
           <p className="text-muted-foreground">Manage your products and platform listings</p>
         </div>
       </div>
+
+      {showDisconnectedBanner && <DisconnectedEbayListingsBanner />}
 
       <AnalyticsCards analytics={analytics} />
 

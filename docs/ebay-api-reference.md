@@ -8,10 +8,12 @@ official doc page, and (c) real behavior we've had to discover by testing
 against Sandbox, since the docs alone were sometimes wrong or incomplete.
 
 **When something eBay-related breaks unexpectedly:** run `npm run
-ebay:verify` first (see bottom of this doc) - it re-checks most of the
-things listed below live against Sandbox/Production and will usually tell
-you exactly which layer broke. Then check this doc for known quirks before
-re-deriving them from scratch.
+integrations:verify` (or `npm run ebay:verify` for eBay only) first - it
+re-checks most of the things listed below live against Sandbox/Production
+and will usually tell you exactly which layer broke, plus a working-path
+hint. Then check this doc for known quirks before re-deriving them from
+scratch. The project skill `.cursor/skills/verify-third-party-integrations`
+is the agent workflow for this.
 
 **When eBay changes something:** update the relevant row's "Last verified"
 date and behavior notes after you re-test, so the next person (or agent)
@@ -35,20 +37,21 @@ things help:
 
 | API | Endpoint | Our code | Official docs | Last verified |
 |---|---|---|---|---|
-| OAuth | `POST /identity/v1/oauth2/token` (auth code + refresh grants) | `EbayClient.exchangeCodeForToken`, `EbayClient.refreshToken` (`lib/ebay/client.ts`) | <https://developer.ebay.com/api-docs/static/oauth-tokens.html> | 2026-09-20 |
-| Identity | `GET /commerce/identity/v1/user/` | `EbayService.getUserInfo` (`lib/ebay/service.ts`) | <https://developer.ebay.com/api-docs/commerce/identity/resources/methods> | 2026-09-20 |
-| Inventory | `PUT /sell/inventory/v1/inventory_item/{sku}` | `EbayClient.createInventoryItem` / `updateInventoryItem` | <https://developer.ebay.com/api-docs/sell/inventory/resources/inventory_item/methods/createOrReplaceInventoryItem> | 2026-09-20 |
+| OAuth | `POST /identity/v1/oauth2/token` (client_credentials / app token) | `scripts/lib/verify-ebay.ts` (`getApplicationToken`) | <https://developer.ebay.com/api-docs/static/oauth-client-credentials-grant.html> | 2026-10-04 |
+| OAuth | `POST /identity/v1/oauth2/token` (auth code + refresh grants) | `EbayClient.exchangeCodeForToken`, `EbayClient.refreshToken` (`lib/ebay/client.ts`) | <https://developer.ebay.com/api-docs/static/oauth-tokens.html> | 2026-10-04 |
+| Identity | `GET /commerce/identity/v1/user/` | `EbayService.getUserInfo` (`lib/ebay/service.ts`) | <https://developer.ebay.com/api-docs/commerce/identity/resources/methods> | 2026-10-04 |
+| Inventory | `PUT /sell/inventory/v1/inventory_item/{sku}` | `EbayClient.createInventoryItem` / `updateInventoryItem` | <https://developer.ebay.com/api-docs/sell/inventory/resources/inventory_item/methods/createOrReplaceInventoryItem> | 2026-10-04 |
 | Inventory | `DELETE /sell/inventory/v1/inventory_item/{sku}` | `EbayClient.deleteInventoryItem` | <https://developer.ebay.com/api-docs/sell/inventory/resources/inventory_item/methods/deleteInventoryItem> | 2026-09-20 |
 | Inventory | `POST /sell/inventory/v1/offer` | `EbayClient.createOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/createOffer> | 2026-09-20 |
-| Inventory | `PUT /sell/inventory/v1/offer/{offerId}` | `EbayClient.updateOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/updateOffer> | 2026-09-20 |
+| Inventory | `PUT /sell/inventory/v1/offer/{offerId}` | `EbayClient.updateOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/updateOffer> | 2026-10-04 |
 | Inventory | `GET /sell/inventory/v1/offer?sku=` | `EbayClient.getOffersForSku` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/getOffers> | 2026-09-20 |
-| Inventory | `POST /sell/inventory/v1/offer/{offerId}/publish` | `EbayClient.publishOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/publishOffer> | 2026-09-20 |
+| Inventory | `POST /sell/inventory/v1/offer/{offerId}/publish` | `EbayClient.publishOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/publishOffer> | 2026-10-04 |
 | Inventory | `POST /sell/inventory/v1/offer/{offerId}/withdraw` | `EbayClient.withdrawOffer` | <https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/withdrawOffer> | 2026-09-20 |
-| Inventory | `GET/POST /sell/inventory/v1/location[/{key}]` | `EbayClient.ensureMerchantLocation` | <https://developer.ebay.com/api-docs/sell/inventory/resources/location/methods/createInventoryLocation> | 2026-09-20 |
+| Inventory | `GET/POST /sell/inventory/v1/location[/{key}]` | `EbayClient.ensureMerchantLocation` | <https://developer.ebay.com/api-docs/sell/inventory/resources/location/methods/createInventoryLocation> | 2026-10-04 |
 | Account | `POST /sell/account/v1/program/opt_in` | `EbayClient.optInToBusinessPolicies` | <https://developer.ebay.com/api-docs/sell/account/resources/program/methods/optInToProgram> | 2026-09-20 |
-| Account | `GET/POST /sell/account/v1/{fulfillment,payment,return}_policy` | `EbayClient.getDefaultBusinessPolicies` | <https://developer.ebay.com/api-docs/sell/account/resources/methods> | 2026-09-20 |
-| Metadata | `GET /sell/metadata/v1/marketplace/{id}/get_item_condition_policies` | `scripts/verify-ebay-integration.ts` only (not yet used in the live listing flow - see gaps below) | <https://developer.ebay.com/api-docs/sell/metadata/resources/marketplace/methods/getItemConditionPolicies> | 2026-09-20 |
-| Taxonomy | *(not yet integrated)* | — | <https://developer.ebay.com/api-docs/commerce/taxonomy/overview.html> | — |
+| Account | `GET/POST /sell/account/v1/{fulfillment,payment,return}_policy` | `EbayClient.getDefaultBusinessPolicies` | <https://developer.ebay.com/api-docs/sell/account/resources/methods> | 2026-10-04 |
+| Metadata | `GET /sell/metadata/v1/marketplace/{id}/get_item_condition_policies` | `scripts/verify-ebay-integration.ts` only (not yet used in the live listing flow - see gaps below) | <https://developer.ebay.com/api-docs/sell/metadata/resources/marketplace/methods/getItemConditionPolicies> | 2026-10-04 |
+| Taxonomy | `GET /commerce/taxonomy/v1/get_default_category_tree_id` | `scripts/lib/verify-ebay.ts` only (not used in the listing flow) | <https://developer.ebay.com/api-docs/commerce/taxonomy/resources/category_tree/methods/getDefaultCategoryTreeId> | 2026-10-04 |
 | Notification | *(not yet integrated - see gaps below)* | `app/api/webhooks/ebay/route.ts` (unverified shape) | <https://developer.ebay.com/api-docs/commerce/notification/overview.html> | — |
 | Marketplace Account Deletion | `GET`/`POST` to our own endpoint | `app/api/webhooks/ebay/account-deletion/route.ts` | <https://developer.ebay.com/marketplace-account-deletion> | 2026-09-20 |
 
@@ -106,14 +109,17 @@ things working:
   switching `EBAY_DEFAULT_CATEGORY_ID` to `175687` ("Cell Phone
   Accessories > Cases, Covers & Skins"), a leaf category with a real
   `itemConditions` list (`New`/`Open box`/`Used`/`For parts or not
-  working`) that all 5 of our `CONDITION_MAP` enum values
-  (`NEW`/`NEW_OTHER`/`USED_VERY_GOOD`/`USED_GOOD`/`USED_ACCEPTABLE`) were
-  verified (via live sandbox offer creation) to be accepted for - see
-  `git log` for the probe script used, or re-derive with `npm run
-  ebay:verify`. This category also only requires two aspects (`Brand`,
-  `MPN`), both auto-filled by `buildEbayAspects()` - see the "Known gaps"
-  aspects note below for why this still isn't a full fix for arbitrary
-  real inventory.
+  working`). That category only accepts `NEW`, `NEW_OTHER`,
+  `USED_EXCELLENT`, and `FOR_PARTS_OR_NOT_WORKING` - it rejects the
+  finer used grades (`USED_VERY_GOOD` / `USED_GOOD` /
+  `USED_ACCEPTABLE`). `mapConditionToEbay()` in `lib/ebay/utils.ts`
+  therefore maps every used tier to `USED_EXCELLENT` (still displayed
+  as generic "Used"). If `EBAY_DEFAULT_CATEGORY_ID` changes to a
+  category with a richer condition policy, re-verify with `npm run
+  ebay:verify` and widen the map. This category also only requires two
+  aspects (`Brand`, `MPN`), both auto-filled by `buildEbayAspects()` -
+  see the "Known gaps" aspects note below for why this still isn't a
+  full fix for arbitrary real inventory.
 - **Images must be publicly-fetchable HTTPS URLs**, not `data:`/base64 -
   eBay's servers fetch image URLs themselves. See `app/api/images/[id]` and
   `toPublicImageUrl()` in `lib/ebay/utils.ts`.
@@ -144,13 +150,17 @@ things working:
 ## Automated verification
 
 ```bash
-npm run ebay:verify
+npm run integrations:verify   # Postgres, auth secrets, S3, platform catalog, eBay
+npm run ebay:verify           # eBay only
 ```
 
-Runs `scripts/verify-ebay-integration.ts` against whichever environment
-`EBAY_SANDBOX` points at, using a real connected user's stored credentials.
-Read-only - creates nothing. Checks: env config sanity, token refresh,
-Identity API, business policies exist, inventory location exists, the
-configured default category's condition-support policy, and a summary of
-local listing statuses. Extend this script (rather than re-deriving checks
-by hand) whenever a new "hard-won" behavior above is discovered.
+Runs against whichever environment `EBAY_SANDBOX` points at. Read-only -
+creates nothing. eBay checks now include an **application token** +
+Taxonomy smoke test so App ID / Cert ID still work even when no seller
+is connected. User-token checks (refresh, Identity, policies, location,
+condition policy) run only when `ebaycredential` exists; otherwise they
+are skipped with a reconnect hint instead of aborting the rest of the
+script. Also flags ACTIVE listings with no stored credentials, and
+listings still on the stale `50979` category. Extend
+`scripts/lib/verify-ebay.ts` / `scripts/verify-integrations.ts` whenever
+a new "hard-won" behavior is discovered.

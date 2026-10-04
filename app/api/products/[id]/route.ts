@@ -6,6 +6,7 @@ import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
 import { ebayService } from "@/lib/ebay/service";
 import { toPublicImageUrl } from "@/lib/ebay/utils";
+import { deleteS3ObjectByUrl } from "@/lib/s3";
 
 // Product update validation schema
 const productUpdateSchema = z.object({
@@ -126,6 +127,13 @@ export async function PATCH(
     
     // Handle image updates if provided
     if (validatedData.images) {
+      // Images are replaced wholesale (not diffed), so anything in the old
+      // set that isn't in the new set is genuinely gone - clean up its S3
+      // object too, or it's an orphaned file nothing will ever delete.
+      const newImageUrls = new Set(validatedData.images);
+      const removedImages = existingProduct.images.filter((img) => !newImageUrls.has(img.url));
+      await Promise.allSettled(removedImages.map((img) => deleteS3ObjectByUrl(img.url)));
+
       await db.productimage.deleteMany({
         where: { productId: id },
       });
@@ -295,6 +303,7 @@ export async function DELETE(
         id,
         userId: session.user.id,
       },
+      include: { images: true },
     });
 
     if (!product) {
@@ -303,6 +312,10 @@ export async function DELETE(
     }
 
     console.log("[PRODUCT_DELETE] Found product, deleting...");
+
+    // Clean up S3 objects for this product's images - nothing else will
+    // ever reference them once the product row is gone.
+    await Promise.allSettled(product.images.map((img) => deleteS3ObjectByUrl(img.url)));
 
     // End the eBay listing first (if any) so it doesn't stay live after
     // we remove our local record of it.

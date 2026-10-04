@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/auth";
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import crypto from "crypto";
+import { z } from "zod";
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+import { auth } from "@/app/auth";
+import { deleteS3ObjectByUrl, createPresignedUpload, MAX_UPLOAD_BYTES } from "@/lib/s3";
+
+const uploadRequestSchema = z.object({
+  fileType: z.string().min(1),
+  fileSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_UPLOAD_BYTES, `File must be under ${MAX_UPLOAD_BYTES / 1024 / 1024}MB`),
 });
 
-// POST /api/upload - Get presigned URL for image upload
+// POST /api/upload - Get a presigned URL to upload a product image
+// directly to S3. See lib/s3.ts and docs/image-storage-setup.md.
 export async function POST(request: Request) {
   try {
     const session = await auth();
@@ -20,47 +22,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { fileType } = await request.json();
+    const json = await request.json();
+    const { fileType, fileSize } = uploadRequestSchema.parse(json);
 
-    // Validate file type
-    if (!fileType.startsWith("image/")) {
+    const { key, uploadUrl, publicUrl } = await createPresignedUpload({
+      userId: session.user.id,
+      contentType: fileType,
+      contentLength: fileSize,
+    });
+
+    return NextResponse.json({ uploadUrl, key, url: publicUrl });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid file type. Only images are allowed." },
+        { error: error.errors.map((e) => e.message).join(", ") },
         { status: 400 }
       );
     }
-
-    // Generate unique filename
-    const fileExtension = fileType.split("/")[1];
-    const randomBytes = crypto.randomBytes(16).toString("hex");
-    const key = `${session.user.id}/${randomBytes}.${fileExtension}`;
-
-    // Create presigned URL
-    const putObjectCommand = new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET_NAME!,
-      Key: key,
-      ContentType: fileType,
-    });
-
-    const presignedUrl = await getSignedUrl(s3Client, putObjectCommand, {
-      expiresIn: 3600, // URL expires in 1 hour
-    });
-
-    return NextResponse.json({
-      presignedUrl,
-      key,
-      url: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
-    });
-  } catch (error) {
     console.error("Error generating upload URL:", error);
     return NextResponse.json(
-      { error: "Failed to generate upload URL" },
+      { error: error instanceof Error ? error.message : "Failed to generate upload URL" },
       { status: 500 }
     );
   }
 }
 
-// DELETE /api/upload - Delete an image
+const deleteRequestSchema = z.object({
+  url: z.string().url(),
+});
+
+// DELETE /api/upload - Delete a previously-uploaded image from S3.
+// Only used for images a user removes *before* saving the product (once
+// saved, product deletion cleans these up itself - see
+// app/api/products/[id]/route.ts).
 export async function DELETE(request: Request) {
   try {
     const session = await auth();
@@ -68,30 +62,25 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { key } = await request.json();
+    const { url } = deleteRequestSchema.parse(await request.json());
 
-    // Verify the key belongs to the user
-    if (!key.startsWith(`${session.user.id}/`)) {
-      return NextResponse.json(
-        { error: "Unauthorized to delete this image" },
-        { status: 403 }
-      );
+    // Keys are namespaced by userId (product-images/{userId}/...) - refuse
+    // to delete anything outside the caller's own namespace.
+    if (!url.includes(`/product-images/${session.user.id}/`)) {
+      return NextResponse.json({ error: "Not authorized to delete this image" }, { status: 403 });
     }
 
-    // Delete from S3
-    await s3Client.send(
-      new DeleteObjectCommand({
-        Bucket: process.env.AWS_BUCKET_NAME!,
-        Key: key,
-      })
-    );
+    await deleteS3ObjectByUrl(url);
 
-    return NextResponse.json({ message: "Image deleted successfully" });
+    return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: error.errors.map((e) => e.message).join(", ") },
+        { status: 400 }
+      );
+    }
     console.error("Error deleting image:", error);
-    return NextResponse.json(
-      { error: "Failed to delete image" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to delete image" }, { status: 500 });
   }
-} 
+}
