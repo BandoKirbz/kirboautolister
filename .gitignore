@@ -38,3 +38,6 @@ next-env.d.ts
 
 # ebay
 ebay-credentials.json
+
+# local test logins (Kirbo / marketplace sandboxes)
+test-credentials.local.json

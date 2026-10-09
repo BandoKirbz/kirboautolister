@@ -9,7 +9,9 @@
  * listings and were already served fully unauthenticated via
  * /api/images/[id] before this existed (see lib/ebay/utils.ts).
  *
- * Secrets live ONLY in `.env.local` (gitignored). Never hardcode AWS keys.
+ * Local dev can pass static keys via .env.local (gitignored). Production
+ * should omit those keys and let the AWS SDK use the IAM role attached to
+ * the deployed app. Never commit access keys.
  */
 import crypto from "crypto";
 
@@ -36,13 +38,15 @@ function isPlaceholder(value: string | undefined): boolean {
 export type S3Env = {
   region: string;
   bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  /** Set only for local dev. Production leaves these empty and uses an IAM role. */
+  accessKeyId?: string;
+  secretAccessKey?: string;
 };
 
 /**
- * Read S3 config from env. Throws a clear, actionable error if anything is
- * missing - mirrors lib/ebay/env.ts's getEbayEnv().
+ * Read S3 config from env. Region and bucket are always required.
+ * Access keys are optional: when both are absent, the AWS SDK uses its
+ * default credential chain (the IAM role on ECS, App Runner, Lambda, or EC2).
  */
 export function getS3Env(): S3Env {
   const region = process.env.AWS_REGION;
@@ -53,18 +57,31 @@ export function getS3Env(): S3Env {
   const missing: string[] = [];
   if (isPlaceholder(region)) missing.push("AWS_REGION");
   if (isPlaceholder(bucket)) missing.push("AWS_BUCKET_NAME");
-  if (isPlaceholder(accessKeyId)) missing.push("AWS_ACCESS_KEY_ID");
-  if (isPlaceholder(secretAccessKey)) missing.push("AWS_SECRET_ACCESS_KEY");
 
   if (missing.length > 0) {
     throw new Error(
-      `Image uploads aren't configured. Set these in .env.local (gitignored), then restart ` +
-        `the dev server: ${missing.join(", ")}. See docs/image-storage-setup.md for how to ` +
-        `create the bucket/IAM user and get these values.`
+      `Image uploads aren't configured. Set ${missing.join(" and ")} for this environment. ` +
+        `Locally those live in .env.local. In production, set them on the host and attach an IAM role ` +
+        `instead of an access key.`
     );
   }
 
-  return { region: region!, bucket: bucket!, accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! };
+  const hasKey = !isPlaceholder(accessKeyId);
+  const hasSecret = !isPlaceholder(secretAccessKey);
+  if (hasKey !== hasSecret) {
+    throw new Error(
+      "Set both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or neither. " +
+        "Local dev uses both. Production should set neither and use the app's IAM role."
+    );
+  }
+
+  return {
+    region: region!,
+    bucket: bucket!,
+    ...(hasKey && hasSecret
+      ? { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! }
+      : {}),
+  };
 }
 
 /** Soft check used by status endpoints - does not throw. */
@@ -85,10 +102,15 @@ function getClient(): { client: S3Client; env: S3Env } {
     cachedClient = {
       client: new S3Client({
         region: env.region,
-        credentials: {
-          accessKeyId: env.accessKeyId,
-          secretAccessKey: env.secretAccessKey,
-        },
+        // Omit credentials so production uses the instance/task role.
+        ...(env.accessKeyId && env.secretAccessKey
+          ? {
+              credentials: {
+                accessKeyId: env.accessKeyId,
+                secretAccessKey: env.secretAccessKey,
+              },
+            }
+          : {}),
       }),
       region: env.region,
     };

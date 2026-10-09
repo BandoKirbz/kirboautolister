@@ -1,19 +1,27 @@
-import { auth } from "@/app/auth";
+import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  const session = await auth();
-  const isAuthPage = request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/register";
+  // Use JWT directly so middleware stays edge-safe and does not pull Prisma/pg
+  // (Turbopack cannot resolve Node builtins like util/types via auth → prisma).
+  // Must match app/auth.ts cookies.sessionToken.name — Auth.js v5 defaults
+  // to "authjs.session-token", which would make every login bounce back here.
+  const token = await getToken({
+    req: request,
+    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
+    cookieName: "next-auth.session-token",
+  });
+  const isAuthPage =
+    request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/register";
   const isHomePage = request.nextUrl.pathname === "/";
 
-  // If user is signed in and trying to access auth pages or home page, redirect to dashboard
-  if (session && (isAuthPage || isHomePage)) {
+  if (token && (isAuthPage || isHomePage)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // If user is not signed in and trying to access protected pages, redirect to login
-  if (!session && request.nextUrl.pathname.startsWith("/dashboard")) {
+  if (!token && request.nextUrl.pathname.startsWith("/dashboard")) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
@@ -31,4 +39,4 @@ export const config = {
      */
     "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
-}; 
+};
