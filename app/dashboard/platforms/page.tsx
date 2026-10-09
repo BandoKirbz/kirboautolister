@@ -1,6 +1,8 @@
 "use client";
 
+import { DepopConnection } from "@/components/platforms/depop/depop-connection";
 import { EbayConnection } from "@/components/platforms/ebay/ebay-connection";
+import { EtsyConnection } from "@/components/platforms/etsy/etsy-connection";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PLATFORM_CATALOG } from "@/lib/platforms";
@@ -8,9 +10,11 @@ import { PLATFORM_CATALOG } from "@/lib/platforms";
 function ComingSoonPlatformCard({
   name,
   logo,
+  reason,
 }: {
   name: string;
   logo: string;
+  reason?: string;
 }) {
   return (
     <Card className="opacity-80">
@@ -23,7 +27,7 @@ function ComingSoonPlatformCard({
           <Badge variant="secondary">Coming soon</Badge>
         </CardTitle>
         <CardDescription>
-          {name} integration is not available yet. We&apos;re starting with eBay.
+          {reason || `${name} integration is not available yet.`}
         </CardDescription>
       </CardHeader>
     </Card>
@@ -31,7 +35,9 @@ function ComingSoonPlatformCard({
 }
 
 export default function PlatformsPage() {
-  const otherPlatforms = PLATFORM_CATALOG.filter((p) => p.id !== "ebay");
+  const comingSoon = PLATFORM_CATALOG.filter(
+    (p) => p.availability === "coming_soon"
+  );
 
   return (
     <div className="container py-6">
@@ -39,19 +45,23 @@ export default function PlatformsPage() {
         <CardHeader>
           <CardTitle>Platform Connections</CardTitle>
           <CardDescription>
-            Connect selling platforms so listings you create here can be published elsewhere.
-            eBay is the live marketplace. Grailed, Depop, and OfferUp are not available yet.
+            Connect selling platforms so listings you create here can be published
+            elsewhere. eBay and Etsy use OAuth. Depop needs a partner API key.
+            Grailed and OfferUp are blocked until they offer an API.
           </CardDescription>
         </CardHeader>
       </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
         <EbayConnection />
-        {otherPlatforms.map((platform) => (
+        <EtsyConnection />
+        <DepopConnection />
+        {comingSoon.map((platform) => (
           <ComingSoonPlatformCard
             key={platform.id}
             name={platform.name}
             logo={platform.logo}
+            reason={platform.unavailableReason}
           />
         ))}
       </div>

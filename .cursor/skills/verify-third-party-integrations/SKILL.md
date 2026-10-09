@@ -56,7 +56,7 @@ If a check fails, the customer-facing risk is "listings stop publishing / images
 - `Business policies` / `Inventory location` → follow `EBAY_SETUP.md` §4; `EbayClient` already opt-in + ensure-location on publish.
 - `Condition support` empty `itemConditions` → change `EBAY_DEFAULT_CATEGORY_ID` (50979 is the known-bad wholesale fallback).
 - `S3 configuration` / `HeadBucket` → AWS env missing or IAM/bucket wrong. Add-product uploads use presigned PUT (`lib/s3.ts`). Do not invent AWS keys.
-- `Postgres` → `DATABASE_URL` in `.env` (Prisma) and `.env.local`.
+- `Postgres` → `DATABASE_URL` for local, or `DATABASE_HOST` + `AWS_DATABASE_PROFILE` for Aurora IAM (see `.env.example`).
 - `Platform catalog honesty` → keep grailed/depop/offerup `coming_soon` until a real client exists.
 
 **Vendor changed an endpoint or required field?**

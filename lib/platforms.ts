@@ -1,4 +1,4 @@
-export type PlatformId = "ebay" | "grailed" | "depop" | "offerup";
+export type PlatformId = "ebay" | "etsy" | "grailed" | "depop" | "offerup";
 
 export type PlatformAvailability = "available" | "coming_soon";
 
@@ -9,6 +9,8 @@ export interface PlatformDefinition {
   website: string;
   logo: string;
   availability: PlatformAvailability;
+  /** Why a coming_soon platform cannot be connected yet. */
+  unavailableReason?: string;
 }
 
 /** Canonical catalog of selling platforms this app knows about. */
@@ -22,12 +24,22 @@ export const PLATFORM_CATALOG: PlatformDefinition[] = [
     availability: "available",
   },
   {
+    id: "etsy",
+    name: "Etsy",
+    slug: "etsy",
+    website: "https://www.etsy.com",
+    logo: "🧶",
+    availability: "available",
+  },
+  {
     id: "grailed",
     name: "Grailed",
     slug: "grailed",
     website: "https://www.grailed.com",
     logo: "👕",
     availability: "coming_soon",
+    unavailableReason:
+      "Grailed does not publish a seller API, so Kirbo cannot connect an account or publish listings there yet.",
   },
   {
     id: "depop",
@@ -35,7 +47,7 @@ export const PLATFORM_CATALOG: PlatformDefinition[] = [
     slug: "depop",
     website: "https://www.depop.com",
     logo: "🛍️",
-    availability: "coming_soon",
+    availability: "available",
   },
   {
     id: "offerup",
@@ -44,6 +56,8 @@ export const PLATFORM_CATALOG: PlatformDefinition[] = [
     website: "https://www.offerup.com",
     logo: "🏷️",
     availability: "coming_soon",
+    unavailableReason:
+      "OfferUp has no public seller API. Business sellers use the Business Portal CSV upload, which Kirbo cannot automate yet.",
   },
 ];
 

@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearchPostgres", "multiSchema"]
+  previewFeatures = ["fullTextSearchPostgres", "multiSchema", "driverAdapters"]
 }
 
 datasource db {
@@ -33,6 +33,7 @@ model user {
   sessions      session[]
   subscription  subscriptionstatus?
   ebayCredential ebaycredential?
+  etsyCredential etsycredential?
 
   @@index([email])
   @@index([username])
@@ -91,6 +92,7 @@ model product {
   user        user           @relation(fields: [userId], references: [id], onDelete: Cascade)
   images      productimage[]
   ebayListing ebaylisting?
+  etsyListing etsylisting?
 
   @@index([userId])
   @@index([sku])
@@ -247,6 +249,57 @@ model ebaylisting {
 
 /// @schema(kirbo407)
 enum EbayListingStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  ERROR
+  ENDED
+  OUT_OF_STOCK
+
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model etsycredential {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String[]
+  etsyUserId   Int?
+  shopId       Int?
+  shopName     String?
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+model etsylisting {
+  id            String            @id @default(cuid())
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  productId     String            @unique
+  etsyListingId String?
+  shopId        Int?
+  status        EtsyListingStatus @default(DRAFT)
+  lastSyncedAt  DateTime?
+  errors        Json?
+  taxonomyId    String?
+  product       product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([status])
+  @@index([etsyListingId])
+  @@schema("kirbo407")
+}
+
+/// @schema(kirbo407)
+enum EtsyListingStatus {
   DRAFT
   PENDING
   ACTIVE

@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
+import { parseStoredCredentials } from "@/lib/depop/credentials";
 import { ebayDb } from "@/lib/ebay/db";
+import { etsyDb } from "@/lib/etsy/db";
 import { PLATFORM_CATALOG } from "@/lib/platforms";
 
 const platformConnectionSchema = z.object({
@@ -45,7 +47,7 @@ export async function GET() {
 
     await ensurePlatformRows();
 
-    const [connections, ebayCredentials] = await Promise.all([
+    const [connections, ebayCredentials, etsyCredentials] = await Promise.all([
       db.platformconnection.findMany({
         where: { userId: session.user.id },
         select: {
@@ -55,6 +57,7 @@ export async function GET() {
         },
       }),
       ebayDb.getCredentials(session.user.id),
+      etsyDb.getCredentials(session.user.id),
     ]);
 
     const connectionById = new Map(connections.map((c) => [c.platformId, c]));
@@ -76,6 +79,37 @@ export async function GET() {
         };
       }
 
+      if (platform.id === "etsy") {
+        const connected = Boolean(etsyCredentials?.shopId);
+        return {
+          id: platform.id,
+          name: platform.name,
+          logo: platform.logo,
+          availability: platform.availability,
+          connected,
+          enabled: connected,
+          username: etsyCredentials?.shopName ?? (etsyCredentials?.shopId
+            ? `shop ${etsyCredentials.shopId}`
+            : null),
+          sandbox: false,
+        };
+      }
+
+      if (platform.id === "depop") {
+        const stored = parseStoredCredentials(connection?.credentials);
+        const connected = Boolean(connection?.isEnabled && stored);
+        return {
+          id: platform.id,
+          name: platform.name,
+          logo: platform.logo,
+          availability: platform.availability,
+          connected,
+          enabled: connected,
+          username: null,
+          sandbox: stored?.environment === "staging",
+        };
+      }
+
       // Other platforms are not implemented yet — never claim "Connected".
       return {
         id: platform.id,
@@ -86,6 +120,7 @@ export async function GET() {
         enabled: false,
         username: null,
         sandbox: false,
+        unavailableReason: platform.unavailableReason,
       };
     });
 
@@ -110,6 +145,20 @@ export async function POST(request: Request) {
     if (platformId === "ebay") {
       return NextResponse.json(
         { error: "Use /api/platforms/ebay/auth to connect eBay" },
+        { status: 400 }
+      );
+    }
+
+    if (platformId === "etsy") {
+      return NextResponse.json(
+        { error: "Use GET /api/platforms/etsy/auth to connect Etsy" },
+        { status: 400 }
+      );
+    }
+
+    if (platformId === "depop") {
+      return NextResponse.json(
+        { error: "Use POST /api/platforms/depop with { apiKey, environment }" },
         { status: 400 }
       );
     }
@@ -179,6 +228,20 @@ export async function DELETE(request: Request) {
     if (platformId === "ebay") {
       return NextResponse.json(
         { error: "Use DELETE /api/platforms/ebay/auth to disconnect eBay" },
+        { status: 400 }
+      );
+    }
+
+    if (platformId === "etsy") {
+      return NextResponse.json(
+        { error: "Use DELETE /api/platforms/etsy/auth to disconnect Etsy" },
+        { status: 400 }
+      );
+    }
+
+    if (platformId === "depop") {
+      return NextResponse.json(
+        { error: "Use DELETE /api/platforms/depop to disconnect Depop" },
         { status: 400 }
       );
     }

@@ -1,65 +1,38 @@
 import { NextResponse } from "next/server";
+
 import { auth } from "@/app/auth";
-import { db } from "@/lib/db";
+import { getPlatformDefinition } from "@/lib/platforms";
 
 export const runtime = "nodejs";
 
-// POST /api/platforms/offerup - Create or update OfferUp connection
-export async function POST(request: Request) {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+const REASON =
+  getPlatformDefinition("offerup")?.unavailableReason ||
+  "OfferUp has no public seller API.";
 
-    return NextResponse.json({
-      message: "OfferUp integration coming soon"
-    });
-  } catch (error) {
-    console.error("OfferUp connection error:", error);
-    return NextResponse.json(
-      { error: "Failed to connect OfferUp account" },
-      { status: 500 }
-    );
-  }
+function status() {
+  return { available: false as const, connected: false as const, reason: REASON };
 }
 
-// GET /api/platforms/offerup - Get OfferUp connection status
 export async function GET() {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    return NextResponse.json({
-      message: "OfferUp integration coming soon"
-    });
-  } catch (error) {
-    console.error("OfferUp status error:", error);
-    return NextResponse.json(
-      { error: "Failed to get OfferUp status" },
-      { status: 500 }
-    );
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  return NextResponse.json(status());
 }
 
-// DELETE /api/platforms/offerup - Disconnect OfferUp account
-export async function DELETE() {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    return NextResponse.json({
-      message: "OfferUp integration coming soon"
-    });
-  } catch (error) {
-    console.error("OfferUp disconnect error:", error);
-    return NextResponse.json(
-      { error: "Failed to disconnect OfferUp account" },
-      { status: 500 }
-    );
+export async function POST() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-} 
+  return NextResponse.json({ error: REASON }, { status: 501 });
+}
+
+export async function DELETE() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return NextResponse.json(status());
+}

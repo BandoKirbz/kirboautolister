@@ -5,6 +5,8 @@ import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
 import { ebayService } from "@/lib/ebay/service";
 import { toPublicImageUrl } from "@/lib/ebay/utils";
+import { publishProductToDepop } from "@/lib/depop/service";
+import { etsyService } from "@/lib/etsy/service";
 
 // Product validation schema
 const productSchema = z.object({
@@ -15,7 +17,7 @@ const productSchema = z.object({
   price: z.number().optional(),
   quantity: z.number().int().optional(),
   images: z.array(z.string()).default([]),
-  platforms: z.array(z.string().regex(/^(ebay|grailed|depop|offerup)$/, "Invalid platform ID")).default([]),
+  platforms: z.array(z.string().regex(/^(ebay|etsy|grailed|depop|offerup)$/, "Invalid platform ID")).default([]),
   isDraft: z.boolean().default(false),
 }).superRefine((data, ctx) => {
   // Skip validation for drafts
@@ -165,6 +167,7 @@ export async function POST(req: Request) {
       // Ensure platforms exist
       const platformData = [
         { id: 'ebay', name: 'eBay', slug: 'ebay', website: 'https://www.ebay.com' },
+        { id: 'etsy', name: 'Etsy', slug: 'etsy', website: 'https://www.etsy.com' },
         { id: 'grailed', name: 'Grailed', slug: 'grailed', website: 'https://www.grailed.com' },
         { id: 'depop', name: 'Depop', slug: 'depop', website: 'https://www.depop.com' },
         { id: 'offerup', name: 'OfferUp', slug: 'offerup', website: 'https://www.offerup.com' }
@@ -200,7 +203,7 @@ export async function POST(req: Request) {
       // the product/listing rows are already saved; the eBay listing row
       // is marked ERROR with the reason so the UI can surface it and the
       // user can retry.
-      let ebayError: string | undefined;
+      const publishWarnings: string[] = [];
       if (!validatedData.isDraft && validatedData.platforms.includes("ebay")) {
         try {
           await ebayService.createListing(session.user.id, product.id, {
@@ -215,8 +218,47 @@ export async function POST(req: Request) {
             images: product.images.map(toPublicImageUrl),
           });
         } catch (err) {
-          ebayError = err instanceof Error ? err.message : "Failed to publish to eBay";
+          const ebayError = err instanceof Error ? err.message : "Failed to publish to eBay";
           console.error("[PRODUCTS_POST] eBay publish failed:", ebayError);
+          publishWarnings.push(`eBay: ${ebayError}`);
+        }
+      }
+
+      if (!validatedData.isDraft && validatedData.platforms.includes("etsy")) {
+        try {
+          const etsyResult = await etsyService.publishProduct(session.user.id, {
+            id: product.id,
+            name: validatedData.title || product.name,
+            description: validatedData.description || product.description,
+            price: validatedData.price || product.price,
+            condition: validatedData.condition || product.condition,
+            quantity: validatedData.quantity || product.quantity,
+            images: product.images,
+          });
+          if (etsyResult.warning) publishWarnings.push(`Etsy: ${etsyResult.warning}`);
+        } catch (err) {
+          const etsyError = err instanceof Error ? err.message : "Failed to publish to Etsy";
+          console.error("[PRODUCTS_POST] Etsy publish failed:", etsyError);
+          publishWarnings.push(`Etsy: ${etsyError}`);
+        }
+      }
+
+      if (!validatedData.isDraft && validatedData.platforms.includes("depop")) {
+        try {
+          await publishProductToDepop(session.user.id, {
+            id: product.id,
+            name: validatedData.title || product.name,
+            description: validatedData.description || product.description,
+            price: validatedData.price || product.price,
+            condition: validatedData.condition || product.condition,
+            brand: validatedData.brand || product.brand,
+            quantity: validatedData.quantity || product.quantity,
+            images: product.images,
+          });
+        } catch (err) {
+          const depopError = err instanceof Error ? err.message : "Failed to publish to Depop";
+          console.error("[PRODUCTS_POST] Depop publish failed:", depopError);
+          publishWarnings.push(`Depop: ${depopError}`);
         }
       }
 
@@ -227,7 +269,9 @@ export async function POST(req: Request) {
           ...product,
           price: `$${product.price.toFixed(2)}`
         },
-        ...(ebayError && { warning: `Product saved, but eBay publish failed: ${ebayError}` }),
+        ...(publishWarnings.length > 0 && {
+          warning: `Product saved, but publish had issues: ${publishWarnings.join(" | ")}`,
+        }),
       });
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {

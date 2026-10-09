@@ -10,6 +10,14 @@
  */
 import { loadEnvConfig } from "@next/env";
 
+import { mapConditionToGrailed } from "../lib/grailed/listing";
+import { GRAILED_UNAVAILABLE_REASON } from "../lib/grailed/status";
+import { mapConditionToDepop } from "../lib/depop/listing";
+import { DEPOP_ACCESS_REASON } from "../lib/depop/status";
+import { listDepopProducts } from "../lib/depop/client";
+import { mapWhenMadeFromCondition } from "../lib/etsy/listing";
+import { isEtsyConfigured } from "../lib/etsy/env";
+import { fetchEtsySellerTaxonomyRoot } from "../lib/etsy/client";
 import {
   CheckFailure,
   CheckResult,
@@ -23,19 +31,23 @@ import { runEbayHealthChecks } from "./lib/verify-ebay";
 
 loadEnvConfig(process.cwd());
 
+const LIVE_PLATFORM_IDS = new Set(["ebay", "etsy", "depop"]);
+
 async function runPostgresChecks(): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   const { db } = await import("../lib/db");
 
   await runCheck(results, "Postgres connectivity", async () => {
+    const { getDatabaseTarget } = await import("../lib/database-url");
+    const target = getDatabaseTarget();
     const rows = await db.$queryRaw<Array<{ ok: number }>>`SELECT 1 AS ok`;
     if (!rows?.[0] || Number(rows[0].ok) !== 1) {
       throw new CheckFailure(
         "Database did not return 1 from SELECT 1",
-        "Confirm DATABASE_URL in .env (Prisma) and .env.local, then `npx prisma db push`."
+        "Confirm DATABASE_URL (local) or DATABASE_HOST (Aurora IAM) in .env.local, then `npm run db:push`."
       );
     }
-    return "SELECT 1 ok";
+    return `SELECT 1 ok, host=${target.host}, auth=${target.iamAuth ? "iam" : "url"}`;
   });
 
   await runCheck(results, "Required tables reachable", async () => {
@@ -94,8 +106,8 @@ async function runS3Checks(): Promise<CheckResult[]> {
   if (!isS3Configured()) {
     await runCheck(results, "S3 configuration", async () => {
       throw new CheckFailure(
-        "AWS_REGION / AWS_BUCKET_NAME / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are missing. Add-product image uploads now request a presigned S3 URL and will fail until these are set.",
-        "Create a public-read product-images bucket + IAM user, put the values in .env.local, and document the policy in docs/image-storage-setup.md (that file is referenced but missing)."
+        "AWS_REGION or AWS_BUCKET_NAME is missing. Uploads need a bucket. Locally, also set an access key pair. In production, omit the keys and attach an IAM role.",
+        "Set AWS_REGION and AWS_BUCKET_NAME. For local dev, add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env.local. For a deployed app, attach an IAM role that can put, get, and delete product-images/*."
       );
     });
     skipCheck(results, "S3 HeadBucket", "Skipped because S3 is not configured.");
@@ -105,7 +117,8 @@ async function runS3Checks(): Promise<CheckResult[]> {
 
   await runCheck(results, "S3 configuration", async () => {
     const env = getS3Env();
-    return `region=${env.region}, bucket=${env.bucket}`;
+    const auth = env.accessKeyId ? "static access key" : "default credential chain (IAM role)";
+    return `region=${env.region}, bucket=${env.bucket}, auth=${auth}`;
   });
 
   await runCheck(results, "S3 HeadBucket", async () => {
@@ -113,7 +126,9 @@ async function runS3Checks(): Promise<CheckResult[]> {
     const env = getS3Env();
     const client = new S3Client({
       region: env.region,
-      credentials: { accessKeyId: env.accessKeyId, secretAccessKey: env.secretAccessKey },
+      ...(env.accessKeyId && env.secretAccessKey
+        ? { credentials: { accessKeyId: env.accessKeyId, secretAccessKey: env.secretAccessKey } }
+        : {}),
     });
     await client.send(new HeadBucketCommand({ Bucket: env.bucket }));
     return `bucket ${env.bucket} reachable`;
@@ -145,11 +160,23 @@ async function runPlatformCatalogChecks(): Promise<CheckResult[]> {
     if (!available.includes("ebay")) {
       throw new CheckFailure("eBay is not marked available in PLATFORM_CATALOG", "Set ebay.availability to available in lib/platforms.ts.");
     }
-    const unexpected = available.filter((id) => id !== "ebay");
+    const unexpected = available.filter((id) => !LIVE_PLATFORM_IDS.has(id));
     if (unexpected.length > 0) {
       throw new CheckFailure(
         `Catalog marks unimplemented platforms as available: ${unexpected.join(", ")}`,
-        "Keep grailed/depop/offerup as coming_soon until a real client exists, or the UI will offer a connect flow that cannot work."
+        "Keep grailed/offerup as coming_soon until a real client exists, or the UI will offer a connect flow that cannot work."
+      );
+    }
+    if (!available.includes("depop")) {
+      throw new CheckFailure(
+        "Depop client exists but catalog is not available",
+        "Set depop.availability to available in lib/platforms.ts."
+      );
+    }
+    if (!available.includes("etsy")) {
+      throw new CheckFailure(
+        "Etsy client exists but catalog is not available",
+        "Set etsy.availability to available in lib/platforms.ts."
       );
     }
     return `available=${available.join(", ") || "(none)"}; coming_soon=${comingSoon.join(", ") || "(none)"}`;
@@ -167,8 +194,69 @@ async function runPlatformCatalogChecks(): Promise<CheckResult[]> {
         "Disable or delete those platformconnection rows. GET /api/platforms already refuses to report them as connected."
       );
     }
-    return "no enabled grailed/depop/offerup connections";
+    return "no enabled grailed/offerup connections";
   });
+
+  skipCheck(
+    results,
+    "Grailed listing publish",
+    GRAILED_UNAVAILABLE_REASON,
+    "Keep grailed.availability as coming_soon. Do not store Grailed passwords or scrape the site. Publish only after Grailed ships an official API; lib/grailed/listing.ts already maps our conditions."
+  );
+
+  await runCheck(results, "Grailed condition map", async () => {
+    const mapped = ["new-with-tags", "new-without-tags", "very-good", "good", "fair"].map(
+      (condition) => `${condition}=${mapConditionToGrailed(condition)}`
+    );
+    return mapped.join(", ");
+  });
+
+  await runCheck(results, "Depop condition map", async () => {
+    const mapped = ["new-with-tags", "new-without-tags", "very-good", "good", "fair"].map(
+      (condition) => `${condition}=${mapConditionToDepop(condition)}`
+    );
+    return mapped.join(", ");
+  });
+
+  await runCheck(results, "Etsy when_made map", async () => {
+    const mapped = ["new-with-tags", "new-without-tags", "very-good", "good", "fair"].map(
+      (condition) => `${condition}=${mapWhenMadeFromCondition(condition)}`
+    );
+    return mapped.join(", ");
+  });
+
+  if (isEtsyConfigured()) {
+    await runCheck(results, "Etsy seller taxonomy (app key)", async () => {
+      const result = await fetchEtsySellerTaxonomyRoot();
+      return `taxonomyNodes=${result.nodeCount}`;
+    });
+  } else {
+    skipCheck(
+      results,
+      "Etsy seller taxonomy (app key)",
+      "ETSY_API_KEYSTRING / ETSY_SHARED_SECRET not set",
+      "Create an app at https://www.etsy.com/developers/your-apps, set both secrets in .env.local, register HTTPS callback /api/etsy/callback, then re-run."
+    );
+  }
+
+  const depopEnvKey = process.env.DEPOP_VERIFY_API_KEY?.trim();
+  const depopEnv = process.env.DEPOP_VERIFY_ENVIRONMENT === "production" ? "production" : "staging";
+  if (depopEnvKey) {
+    await runCheck(results, "Depop GET /products (env key)", async () => {
+      const result = await listDepopProducts(
+        { apiKey: depopEnvKey, environment: depopEnv },
+        1
+      );
+      return `status=${result.status}, sampleItems=${result.itemCount}, env=${depopEnv}`;
+    });
+  } else {
+    skipCheck(
+      results,
+      "Depop GET /products (env key)",
+      DEPOP_ACCESS_REASON,
+      "When Depop issues a staging key, set DEPOP_VERIFY_API_KEY in .env.local (and optional DEPOP_VERIFY_ENVIRONMENT=staging|production) then re-run."
+    );
+  }
 
   return results;
 }

@@ -6,6 +6,7 @@ import { auth } from "@/app/auth";
 import { db } from "@/lib/db";
 import { ebayService } from "@/lib/ebay/service";
 import { toPublicImageUrl } from "@/lib/ebay/utils";
+import { publishProductToDepop } from "@/lib/depop/service";
 import { deleteS3ObjectByUrl } from "@/lib/s3";
 
 // Product update validation schema
@@ -247,6 +248,27 @@ export async function PATCH(
       }
     }
 
+    // Depop publish is an idempotent PUT by SKU, so editing a product just
+    // re-pushes it. Failures are surfaced as a warning, never fail the save.
+    let depopError: string | undefined;
+    if (!isDraft && validatedData.platforms.includes("depop")) {
+      try {
+        await publishProductToDepop(session.user.id, {
+          id,
+          name: updatedProduct.name,
+          description: updatedProduct.description,
+          price: updatedProduct.price,
+          condition: updatedProduct.condition,
+          brand: updatedProduct.brand,
+          quantity: updatedProduct.quantity,
+          images: updatedProduct.images,
+        });
+      } catch (err) {
+        depopError = err instanceof Error ? err.message : "Failed to update Depop listing";
+        console.error("[PRODUCT_PATCH] Depop update failed:", depopError);
+      }
+    }
+
     // Format price with $ prefix
     const formattedProduct = {
       ...updatedProduct,
@@ -255,7 +277,14 @@ export async function PATCH(
         ...listing,
         price: `$${listing.price.toFixed(2)}`
       })),
-      ...(ebayError && { warning: `Product updated, but eBay sync failed: ${ebayError}` }),
+      ...((ebayError || depopError) && {
+        warning: `Product updated, but ${[
+          ebayError && `eBay sync failed: ${ebayError}`,
+          depopError && `Depop sync failed: ${depopError}`,
+        ]
+          .filter(Boolean)
+          .join(" | ")}`,
+      }),
     };
 
     return NextResponse.json(formattedProduct);
